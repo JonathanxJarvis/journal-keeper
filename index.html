@@ -194,12 +194,33 @@
     <h2>Handwriting reader</h2>
     <p id="learned" class="muted"></p>
     <div class="stack">
+      <label class="check"><input type="radio" name="reader" value="claude"> <span><b>Claude reader</b>: by far the most accurate for cursive. Needs internet and your own Claude API key (paid per page, about 1 to 1.5 cents each).</span></label>
       <label class="check"><input type="radio" name="reader" value="handwriting"> <span><b>Handwriting reader</b>: best for cursive and joined-up writing. Downloads about 80 MB once, then works offline. About 2 seconds per line.</span></label>
       <label class="check"><input type="radio" name="reader" value="print"> <span><b>Quick reader</b>: small and fast, but only good for printing and very neat writing.</span></label>
       <button class="btn ghost" id="btn-warm">Download the handwriting reader now</button>
       <div class="note info reader-note" hidden></div>
     </div>
     <p class="muted small">Tip: use Wi-Fi for the download.</p>
+  </div>
+
+  <div class="card" id="claude-card">
+    <h2>Claude reader</h2>
+    <div class="stack">
+      <label for="claude-key">Claude API key</label>
+      <input id="claude-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-...">
+      <label for="claude-model">Model</label>
+      <select id="claude-model">
+        <option value="claude-sonnet-5">Sonnet 5 (about 1 to 1.5 cents a page)</option>
+        <option value="claude-opus-5">Opus 5 (best, about 2.5 to 3.5 cents a page)</option>
+      </select>
+      <label for="claude-hint">Notes to help reading (optional)</label>
+      <textarea id="claude-hint" rows="3" placeholder="For example: names that come up often (Margaret, Uncle Bert), places, the language used."></textarea>
+      <button class="btn" id="btn-claude-save">Save and test the key</button>
+      <button class="btn ghost" id="btn-claude-all">Read all unchecked pages with Claude</button>
+      <p id="claude-spent" class="muted"></p>
+      <div class="note info" id="claude-note" hidden></div>
+    </div>
+    <p class="muted small">The key stays on this phone. Pages go straight from this phone to Anthropic to be read, and nowhere else.</p>
   </div>
 
   <div class="card">
@@ -257,6 +278,7 @@
 <script src="vendor/tesseract.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="reader.js"></script>
+<script src="claude-reader.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

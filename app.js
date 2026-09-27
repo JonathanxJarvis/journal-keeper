@@ -2,7 +2,7 @@
    search them, and save them as PDFs. Everything stays on this device. */
 'use strict';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -494,7 +494,33 @@ const OCR = (() => {
         let raw = '', confidence = null, engine = 'print', note = '';
         let lines = [];
         const got = [];
-        try { lines = await findLines(blob); } catch (e) { console.error(e); }
+        let meta = null;
+        if (readerChoice() === 'claude') {
+          readProgress.set(id, 'Claude is reading this page…');
+          refreshItem(id);
+          try {
+            meta = await ClaudeReader.read(blob);
+          } catch (e) {
+            readProgress.delete(id);
+            if (e.kind !== 'page') {
+              // Out of credit, no key, or no internet: keep this and the rest waiting, stop for now.
+              page.ocr = { status: 'waiting', confidence: null, note: e.message };
+              await DB.putPage(stored(page)).catch(() => {});
+              for (const q of queue.splice(0)) {
+                const w = state.pages.find((x) => x.id === q);
+                if (w) { w.ocr = { status: 'waiting', confidence: null, note: e.message }; await DB.putPage(stored(w)).catch(() => {}); refreshItem(q); }
+              }
+              refreshItem(id);
+              showReaderNote(e.message, 8000);
+              break;
+            }
+            throw e;
+          }
+          raw = meta.text;
+          engine = 'claude';
+        } else {
+          try { lines = await findLines(blob); } catch (e) { console.error(e); }
+        }
         if (readerChoice() === 'handwriting' && HTR.supported()) {
           try {
             for (let i = 0; i < lines.length; i++) {
@@ -513,7 +539,7 @@ const OCR = (() => {
               : `The handwriting reader could not run on this phone (${msg.slice(0, 120)}), so the quick reader was used.`;
           }
         }
-        if (engine === 'print') {
+        if (engine === 'print' && readerChoice() !== 'claude') {
           readProgress.set(id, 'Reading…');
           refreshItem(id);
           const worker = await getWorker();
@@ -522,7 +548,7 @@ const OCR = (() => {
           confidence = Math.round(data.confidence || 0);
         }
         readProgress.delete(id);
-        const text = Learner.apply(raw);
+        const text = engine === 'claude' ? raw : Learner.apply(raw);
         // Keep each line's picture so it can be checked (and later used to train the reader)
         const items = [];
         for (let i = 0; i < lines.length; i++) {
@@ -535,11 +561,18 @@ const OCR = (() => {
         if (state.currentId === id) await savePage({ quiet: true });
         const fresh = (await DB.getPage(id)) || page;
         // Keep anything the person already typed; add the reading underneath.
-        fresh.text = fresh.text && fresh.text.trim()
-          ? fresh.text.trim() + '\n\n' + text
-          : text;
+        // An earlier machine reading nobody has touched is simply replaced.
+        const had = (fresh.text || '').trim();
+        const untouched = !had || had === (fresh.readText || '').trim() || had === Learner.apply(fresh.readText || '').trim();
+        fresh.text = untouched ? text : had + '\n\n' + text;
+        const oldGuess = !fresh.title || fresh.title === guessTitle(had);
         fresh.readText = raw;
         fresh.ocr = { status: 'done', confidence, engine, note };
+        if (meta) {
+          if (meta.title && oldGuess) fresh.title = meta.title;
+          if (meta.date && !fresh.dateWritten) fresh.dateWritten = meta.date.length === 10 ? meta.date : '';
+          fresh.tags = [...new Set([...(fresh.tags || []), ...meta.tags])];
+        }
         if (!fresh.title) fresh.title = guessTitle(text);
         fresh.updated = Date.now();
         await DB.putPage(fresh);
@@ -731,7 +764,7 @@ function itemHTML(r) {
   const p = r.p;
   const meta = [fmtDate(p.dateWritten), p.notebook].filter(Boolean).map(esc).join(' · ');
   const badges = [];
-  if (p.ocr?.status === 'waiting') badges.push('<span class="badge busy">Waiting to read</span>');
+  if (p.ocr?.status === 'waiting') badges.push(`<span class="badge busy">${p.ocr.note ? 'Paused, see menu' : 'Waiting to read'}</span>`);
   else if (p.ocr?.status === 'reading') badges.push(`<span class="badge busy">${esc(readProgress.get(p.id) || 'Reading handwriting…')}</span>`);
   else if (p.ocr?.status === 'error') badges.push('<span class="badge warn">Could not read, tap to type it</span>');
   else if (!p.reviewed) badges.push('<span class="badge warn">Needs checking</span>');
@@ -844,7 +877,9 @@ function fillPageForm(p) {
   note.className = 'note';
   if (p.ocr?.status === 'waiting' || p.ocr?.status === 'reading') {
     note.className = 'note info';
-    note.textContent = 'Reading the handwriting. The words will appear below in a moment. You can fill in the other details now.';
+    note.textContent = p.ocr?.status === 'waiting' && p.ocr.note
+      ? p.ocr.note
+      : 'Reading the handwriting. The words will appear below in a moment. You can fill in the other details now.';
     note.hidden = false;
   } else if (p.ocr?.status === 'error') {
     note.textContent = 'The handwriting could not be read on this page. You can type or dictate the words below.';
@@ -1312,8 +1347,51 @@ function wire() {
     }
   });
 
+  // Claude reader settings
+  const claudeNote = (msg) => { const n = $('#claude-note'); n.textContent = msg; n.hidden = !msg; };
+  const showSpent = () => {
+    const s = ClaudeReader.spent();
+    $('#claude-spent').textContent = s.pages
+      ? `Read by Claude on this phone so far: ${s.pages} page${s.pages === 1 ? '' : 's'}, about $${s.usd.toFixed(2)} (average ${(100 * s.usd / s.pages).toFixed(1)} cents a page).`
+      : 'No pages read by Claude yet.';
+  };
+  $('#claude-key').value = ClaudeReader.key();
+  $('#claude-model').value = ClaudeReader.model();
+  $('#claude-hint').value = ClaudeReader.hint();
+  $('#claude-model').onchange = (e) => ClaudeReader.setModel(e.target.value);
+  $('#claude-hint').onchange = (e) => ClaudeReader.setHint(e.target.value);
+  showSpent();
+  $('#btn-claude-save').onclick = async () => {
+    ClaudeReader.setKey($('#claude-key').value);
+    ClaudeReader.setHint($('#claude-hint').value);
+    claudeNote('Checking the key…');
+    try {
+      await ClaudeReader.test();
+      setReaderChoice('claude');
+      for (const r of $$('input[name="reader"]')) r.checked = r.value === 'claude';
+      claudeNote('The key works. New pages will now be read by Claude.');
+    } catch (e) {
+      claudeNote(e.message);
+    }
+  };
+  $('#btn-claude-all').onclick = async () => {
+    if (!ClaudeReader.ready()) { claudeNote('Add and test your Claude API key first.'); return; }
+    setReaderChoice('claude');
+    for (const r of $$('input[name="reader"]')) r.checked = r.value === 'claude';
+    const todo = state.pages.filter((p) => !p.reviewed && !(p.ocr && p.ocr.engine === 'claude' && p.ocr.status === 'done'));
+    if (!todo.length) { claudeNote('Every page has already been read by Claude or checked by hand.'); return; }
+    const m = ClaudeReader.MODELS[ClaudeReader.model()];
+    const est = todo.length * (m.inPerM * 2600 + m.outPerM * 900) / 1e6;
+    claudeNote(`Reading ${todo.length} page${todo.length === 1 ? '' : 's'}, roughly $${est.toFixed(2)}. Keep the app open and on Wi-Fi; you can watch the list fill in.`);
+    for (const p of todo) {
+      p.ocr = { status: 'waiting', confidence: null };
+      await DB.putPage(stored(p)).catch(() => {});
+      OCR.enqueue(p.id);
+    }
+  };
+
   // Menu
-  $('#btn-menu').onclick = () => { renderStats(); showView('menu'); };
+  $('#btn-menu').onclick = () => { renderStats(); showSpent(); showView('menu'); };
   $('#menu-back').onclick = () => { showView('list'); render(); };
   $('#btn-pdf-all').onclick = () => exportPDF(searchPagesAll(), 'Journal - all pages');
   $('#btn-text-all').onclick = () => exportAllText();

@@ -278,3 +278,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .line-row.done { border-color: var(--ok); }
 .line-row img { display: block; width: 100%; height: auto; max-height: 90px; object-fit: contain; object-position: left center; background: #fff; border-radius: 6px; }
 .line-input { width: 100%; min-height: 50px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font: 19px/1.4 var(--serif); }
+
+#claude-card label { font-weight: 600; font-size: 16px; }
+#claude-card input, #claude-card select, #claude-card textarea {
+  width: 100%; min-height: 50px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+}
+#claude-card textarea { resize: vertical; }
