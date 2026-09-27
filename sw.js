@@ -1,7 +1,7 @@
 // Keeps Journal Keeper working without internet: every file the app needs is
 // stored on the phone. The large handwriting reader files are stored the first
 // time they are used (the model itself is kept by the reader in its own cache).
-const CACHE = 'journal-keeper-v6';
+const CACHE = 'journal-keeper-v7';
 const FILES = [
   './', 'index.html', 'styles.css', 'reader.js', 'claude-reader.js', 'app.js', 'htr-worker.js', 'manifest.webmanifest',
   'vendor/tesseract.min.js', 'vendor/worker.min.js', 'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs',
@@ -49,7 +49,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   e.respondWith(
-    fetch(e.request).then((res) => {
+    fetch(e.request, { cache: 'no-cache' }).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html')))

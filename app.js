@@ -1423,7 +1423,13 @@ async function init() {
   render();
   OCR.resume();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Always check for a newer version, and reload once when it takes over, so updates show straight away.
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded && !OCR.isBusy()) { reloaded = true; location.reload(); }
+    });
   }
 }
 
