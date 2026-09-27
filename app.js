@@ -1,8 +1,8 @@
-/* Journal Keeper: scan handwritten journal pages, read them on the phone,
-   search them, and save them as PDFs. Everything stays on this device. */
+/* Journal Keeper: scan handwritten journal pages, have Claude read them,
+   search them, and save them as PDFs. Pages are stored on this device. */
 'use strict';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '2.0.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -24,7 +24,7 @@ const DB = (() => {
         const db = req.result;
         if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
-        // one picture per line of writing, with its text (used for checking and training)
+        // line pictures from an earlier version; no longer used, kept so older data still opens
         if (!db.objectStoreNames.contains('lines')) db.createObjectStore('lines');
       };
       req.onsuccess = () => resolve(req.result);
@@ -383,7 +383,7 @@ async function saveAdjusted(src, turns, rect, look) {
     tags: [],
     text: '',
     reviewed: false,
-    ocr: { status: 'waiting', confidence: null },
+    ocr: { status: 'waiting' },
     thumb,
     w: canvas.width,
     h: canvas.height,
@@ -411,73 +411,26 @@ async function requestPersistentStorage() {
 }
 
 /* =========================================================
-   Reading the pages, fully on the phone.
-   Two readers:
-   - "handwriting": TrOCR (htr-worker.js), trained on handwritten lines,
-     cursive included. Needs a one-time download of about 80 MB.
-   - "print": Tesseract, small and bundled, good for printing and neat hands.
+   Reading the pages: each photo is sent to Claude (claude-reader.js),
+   one at a time, and the typed text comes back and is saved here.
    ========================================================= */
-function readerChoice() {
-  try { return localStorage.getItem('jk-reader') || 'handwriting'; } catch { return 'handwriting'; }
-}
-function setReaderChoice(v) {
-  try { localStorage.setItem('jk-reader', v); } catch { /* not important */ }
-}
-const readProgress = new Map();   // page id -> "line 3 of 12"
+const readProgress = new Map();   // page id -> what is happening now
 const OCR = (() => {
-  let workerP = null;
   let running = false;
   const queue = [];
-  const base = new URL('.', location.href).href;
-
-  const LANG_KEY = 'jk/eng.traineddata';
-
-  /* Put the English reading data into the reader's own cache before it starts.
-     (The file is named .wasm only so every web host serves it as a plain binary.) */
-  async function seedLanguage() {
-    const db = await new Promise((res, rej) => {
-      const r = indexedDB.open('keyval-store');
-      r.onupgradeneeded = () => r.result.createObjectStore('keyval');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    });
-    try {
-      const has = await new Promise((res) => {
-        const g = db.transaction('keyval').objectStore('keyval').get(LANG_KEY);
-        g.onsuccess = () => res(g.result !== undefined);
-        g.onerror = () => res(false);
-      });
-      if (has) return;
-      const resp = await fetch(base + 'lang/eng.traineddata.gz.wasm');
-      if (!resp.ok) throw new Error('Reading data missing');
-      const data = new Uint8Array(await resp.arrayBuffer());
-      await new Promise((res, rej) => {
-        const t = db.transaction('keyval', 'readwrite');
-        t.objectStore('keyval').put(data, LANG_KEY);
-        t.oncomplete = res;
-        t.onerror = () => rej(t.error);
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  function getWorker() {
-    if (!workerP) {
-      workerP = seedLanguage().then(() => Tesseract.createWorker('eng', 1, {
-        workerPath: base + 'vendor/worker.min.js',
-        corePath: base + 'vendor/core',
-        langPath: base + 'lang',
-        cachePath: 'jk',
-        gzip: true,
-      })).catch((e) => { workerP = null; throw e; });
-    }
-    return workerP;
-  }
 
   function enqueue(id) {
     if (!queue.includes(id)) queue.push(id);
     pump();
+  }
+
+  // Keep pages waiting (no key yet, no internet, no credit) and stop for now.
+  async function pause(msg) {
+    for (const q of queue.splice(0)) {
+      const w = state.pages.find((x) => x.id === q);
+      if (w) { w.ocr = { status: 'waiting', note: msg }; await DB.putPage(stored(w)).catch(() => {}); refreshItem(q); }
+    }
+    showReaderNote(msg, 8000);
   }
 
   async function pump() {
@@ -487,100 +440,46 @@ const OCR = (() => {
       const id = queue.shift();
       const page = state.pages.find((p) => p.id === id);
       if (!page) continue;
-      page.ocr = { status: 'reading', confidence: null };
+      page.ocr = { status: 'reading' };
+      readProgress.set(id, 'Claude is reading this page…');
       refreshItem(id);
       try {
         const blob = await DB.getImage(id);
-        let raw = '', confidence = null, engine = 'print', note = '';
-        let lines = [];
-        const got = [];
-        let meta = null;
-        if (readerChoice() === 'claude') {
-          readProgress.set(id, 'Claude is reading this page…');
-          refreshItem(id);
-          try {
-            meta = await ClaudeReader.read(blob);
-          } catch (e) {
+        let meta;
+        try {
+          meta = await ClaudeReader.read(blob);
+        } catch (e) {
+          if (e.kind !== 'page') {
             readProgress.delete(id);
-            if (e.kind !== 'page') {
-              // Out of credit, no key, or no internet: keep this and the rest waiting, stop for now.
-              page.ocr = { status: 'waiting', confidence: null, note: e.message };
-              await DB.putPage(stored(page)).catch(() => {});
-              for (const q of queue.splice(0)) {
-                const w = state.pages.find((x) => x.id === q);
-                if (w) { w.ocr = { status: 'waiting', confidence: null, note: e.message }; await DB.putPage(stored(w)).catch(() => {}); refreshItem(q); }
-              }
-              refreshItem(id);
-              showReaderNote(e.message, 8000);
-              break;
-            }
-            throw e;
+            page.ocr = { status: 'waiting', note: e.message };
+            await DB.putPage(stored(page)).catch(() => {});
+            refreshItem(id);
+            await pause(e.message);
+            break;
           }
-          raw = meta.text;
-          engine = 'claude';
-        } else {
-          try { lines = await findLines(blob); } catch (e) { console.error(e); }
-        }
-        if (readerChoice() === 'handwriting' && HTR.supported()) {
-          try {
-            for (let i = 0; i < lines.length; i++) {
-              readProgress.set(id, `Reading line ${i + 1} of ${lines.length}…`);
-              refreshItem(id);
-              got.push((await HTR.readLine(lines[i])).trim());
-            }
-            raw = got.filter(Boolean).join('\n');
-            engine = 'handwriting';
-            if (!lines.length) note = 'No lines of writing were found. Try a closer, brighter photo.';
-          } catch (e) {
-            console.error(e);
-            const msg = String(e && e.message || e);
-            note = navigator.onLine === false || /fetch|network|load/i.test(msg)
-              ? 'The handwriting reader needs internet the first time, to download it (about 80 MB). The quick reader was used this time, so expect mistakes. Connect to Wi-Fi and tap "Read the handwriting again".'
-              : `The handwriting reader could not run on this phone (${msg.slice(0, 120)}), so the quick reader was used.`;
-          }
-        }
-        if (engine === 'print' && readerChoice() !== 'claude') {
-          readProgress.set(id, 'Reading…');
-          refreshItem(id);
-          const worker = await getWorker();
-          const { data } = await worker.recognize(blob);
-          raw = tidyText(data.text || '');
-          confidence = Math.round(data.confidence || 0);
+          throw e;
         }
         readProgress.delete(id);
-        const text = engine === 'claude' ? raw : Learner.apply(raw);
-        // Keep each line's picture so it can be checked (and later used to train the reader)
-        const items = [];
-        for (let i = 0; i < lines.length; i++) {
-          const read = got[i] || '';
-          items.push({ img: await canvasToBlob(lines[i], 'image/jpeg', 0.85), read, text: Learner.apply(read), checked: false });
-        }
-        await DB.putLines(id, items);
-        if (state.currentId === id) pageLines = items;
         // If this page is open, keep what has been typed so far
         if (state.currentId === id) await savePage({ quiet: true });
         const fresh = (await DB.getPage(id)) || page;
-        // Keep anything the person already typed; add the reading underneath.
-        // An earlier machine reading nobody has touched is simply replaced.
+        // Keep anything the person typed; an earlier reading nobody touched is simply replaced.
         const had = (fresh.text || '').trim();
-        const untouched = !had || had === (fresh.readText || '').trim() || had === Learner.apply(fresh.readText || '').trim();
-        fresh.text = untouched ? text : had + '\n\n' + text;
-        const oldGuess = !fresh.title || fresh.title === guessTitle(had);
-        fresh.readText = raw;
-        fresh.ocr = { status: 'done', confidence, engine, note };
-        if (meta) {
-          if (meta.title && oldGuess) fresh.title = meta.title;
-          if (meta.date && !fresh.dateWritten) fresh.dateWritten = meta.date.length === 10 ? meta.date : '';
-          fresh.tags = [...new Set([...(fresh.tags || []), ...meta.tags])];
-        }
-        if (!fresh.title) fresh.title = guessTitle(text);
+        const untouched = !had || had === (fresh.readText || '').trim();
+        fresh.text = untouched ? meta.text : had + '\n\n' + meta.text;
+        if (meta.title && (!fresh.title || fresh.title === guessTitle(had))) fresh.title = meta.title;
+        if (meta.date && !fresh.dateWritten && meta.date.length === 10) fresh.dateWritten = meta.date;
+        fresh.tags = [...new Set([...(fresh.tags || []), ...meta.tags])];
+        if (!fresh.title) fresh.title = guessTitle(meta.text);
+        fresh.readText = meta.text;
+        fresh.ocr = { status: 'done', engine: 'claude' };
         fresh.updated = Date.now();
         await DB.putPage(fresh);
         Object.assign(page, fresh);
       } catch (e) {
         console.error(e);
         readProgress.delete(id);
-        page.ocr = { status: 'error', confidence: null, note: String(e && e.message || e) };
+        page.ocr = { status: 'error', note: String(e && e.message || e) };
         await DB.putPage(stored(page)).catch(() => {});
       }
       refreshItem(id);
@@ -832,37 +731,10 @@ function renderFilterOptions() {
    Page detail
    ========================================================= */
 let pageImgURL = null;
-let pageLines = null;        // line pictures + text of the open page
-let lineURLs = [];
-
-function renderLines() {
-  const wrap = $('#pg-lines-wrap');
-  for (const u of lineURLs) URL.revokeObjectURL(u);
-  lineURLs = [];
-  if (!pageLines || !pageLines.length) { wrap.hidden = true; $('#pg-lines').innerHTML = ''; return; }
-  wrap.hidden = false;
-  const done = pageLines.filter((l) => l.checked).length;
-  $('#pg-lines-count').textContent = `${done} of ${pageLines.length} lines checked`;
-  $('#pg-lines').innerHTML = pageLines.map((l, i) => {
-    const u = URL.createObjectURL(l.img);
-    lineURLs.push(u);
-    return `<li class="line-row${l.checked ? ' done' : ''}">
-      <img src="${u}" alt="Line ${i + 1} of the page">
-      <label class="sr-only" for="ln-${i}">Line ${i + 1}</label>
-      <input id="ln-${i}" class="line-input" data-i="${i}" type="text" value="${esc(l.text)}" placeholder="Type or say line ${i + 1}" enterkeyhint="next" autocomplete="off" spellcheck="true">
-    </li>`;
-  }).join('');
-}
-
-function linesText() {
-  return pageLines.map((l) => l.text.trim()).filter(Boolean).join('\n');
-}
-
 async function openPage(id) {
   const p = state.pages.find((x) => x.id === id);
   if (!p) return;
   state.currentId = id;
-  try { pageLines = (await DB.getLines(id)) || null; } catch { pageLines = null; }
   $('#pg-confirm').hidden = true;
   fillPageForm(p);
   showView('page');
@@ -879,16 +751,13 @@ function fillPageForm(p) {
     note.className = 'note info';
     note.textContent = p.ocr?.status === 'waiting' && p.ocr.note
       ? p.ocr.note
-      : 'Reading the handwriting. The words will appear below in a moment. You can fill in the other details now.';
+      : 'Claude is reading this page. The words will appear below in a moment. You can fill in the other details now.';
     note.hidden = false;
   } else if (p.ocr?.status === 'error') {
-    note.textContent = 'The handwriting could not be read on this page. You can type or dictate the words below.';
+    note.textContent = `${p.ocr.note || 'This page could not be read.'} You can type or dictate the words below, or tap "Read this page again".`;
     note.hidden = false;
   } else if (!p.reviewed && p.ocr?.note) {
     note.textContent = p.ocr.note;
-    note.hidden = false;
-  } else if (!p.reviewed && p.ocr?.confidence != null && p.ocr.confidence < 60) {
-    note.textContent = 'This handwriting was hard to read, so expect mistakes. Please look over the words below and fix them.';
     note.hidden = false;
   } else {
     note.hidden = true;
@@ -899,7 +768,6 @@ function fillPageForm(p) {
   $('#pg-notebook').value = p.notebook || '';
   $('#pg-tags').value = (p.tags || []).join(', ');
   $('#pg-reviewed').checked = !!p.reviewed;
-  renderLines();
 }
 
 function stored(p) {
@@ -919,14 +787,6 @@ async function savePage({ quiet = false } = {}) {
   p.reviewed = $('#pg-reviewed').checked;
   p.updated = Date.now();
   rememberNotebook(p.notebook);
-  if (pageLines && pageLines.length) {
-    if (p.reviewed) for (const l of pageLines) if (l.text.trim()) l.checked = true;
-    await DB.putLines(p.id, pageLines);
-  }
-  if (p.readText) {
-    p.learned = Learner.diffPairs(p.readText, p.text);
-    Learner.rebuild(state.pages);
-  }
   await DB.putPage(stored(p));
   if (!quiet) toast('Saved');
 }
@@ -1082,30 +942,6 @@ function searchPagesAll() {
   return [...state.pages].sort((a, b) => (a.dateWritten || '9999').localeCompare(b.dateWritten || '9999') || a.created - b.created);
 }
 
-/* Every line Dad has checked, as picture + text pairs. This is what a
-   handwriting reader needs in order to be trained on his writing. */
-async function exportTraining() {
-  busy('Collecting checked lines…');
-  try {
-    const all = await DB.allLines();
-    const parts = ['{"app":"journal-keeper-training","version":1,"lines":['];
-    let n = 0;
-    for (const items of all) for (const l of items || []) {
-      if (!l.checked || !l.text.trim()) continue;
-      parts.push((n ? ',' : '') + JSON.stringify({ text: l.text.trim(), image: await blobToDataURL(l.img) }));
-      n++;
-    }
-    parts.push(']}');
-    busy(false);
-    if (!n) { toast('No checked lines yet. Open a page and check its lines first.', 4000); return; }
-    await deliverFile(new Blob(parts, { type: 'application/json' }), `Journal Keeper training lines (${n}).json`);
-  } catch (e) {
-    console.error(e);
-    busy(false);
-    toast('The training file could not be made.', 4000);
-  }
-}
-
 async function renderStats() {
   const n = state.pages.length;
   const checked = state.pages.filter((p) => p.reviewed).length;
@@ -1117,19 +953,10 @@ async function renderStats() {
     }
   } catch { /* optional */ }
   $('#stats').textContent = `${n} page${n === 1 ? '' : 's'} saved, ${checked} checked.${space}`;
-  const learned = Learner.count();
-  $('#learned').textContent = learned
-    ? `It has learned ${learned} word${learned === 1 ? '' : 's'} from your corrections so far.`
-    : 'It learns from your corrections: each word you fix is remembered for the next pages.';
   $('#btn-pdf-all').disabled = !n;
   $('#btn-text-all').disabled = !n;
   $('#btn-backup').disabled = !n;
-  try {
-    let lines = 0;
-    for (const items of await DB.allLines()) for (const l of items || []) if (l.checked && l.text.trim()) lines++;
-    $('#training-count').textContent = `${lines} line${lines === 1 ? '' : 's'} checked so far. About 200 lines are enough to train the reader on this handwriting.`;
-    $('#btn-training').disabled = !lines;
-  } catch { /* optional */ }
+
 }
 
 let readerNoteTimer;
@@ -1265,7 +1092,6 @@ function wire() {
   $('#pg-back').onclick = async () => {
     await savePage({ quiet: true });
     state.currentId = null;
-    pageLines = null;
     showView('list'); render();
   };
   $('#pg-save').onclick = async () => {
@@ -1284,11 +1110,11 @@ function wire() {
     await savePage({ quiet: true });
     // Replace the text only if the person hasn't marked it as checked
     if (!p.reviewed) { p.text = ''; $('#pg-text').value = ''; p.readText = ''; }
-    p.ocr = { status: 'waiting', confidence: null };
+    p.ocr = { status: 'waiting' };
     await DB.putPage(stored(p));
     fillPageForm(p);
     OCR.enqueue(p.id);
-    toast(p.reviewed ? 'Reading again. New words will be added below yours.' : 'Reading the handwriting again…');
+    toast(p.reviewed ? 'Reading again. New words will be added below yours.' : 'Claude is reading the page again…');
   };
   $('#pg-delete').onclick = () => { $('#pg-confirm').hidden = false; $('#pg-confirm').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   $('#pg-delete-no').onclick = () => { $('#pg-confirm').hidden = true; };
@@ -1300,52 +1126,9 @@ function wire() {
     toast('Page deleted');
     showView('list'); render();
   };
-  $('#pg-lines').addEventListener('input', (e) => {
-    const inp = e.target.closest('.line-input');
-    if (!inp || !pageLines) return;
-    const l = pageLines[+inp.dataset.i];
-    l.text = inp.value;
-    l.checked = true;
-    inp.parentElement.classList.add('done');
-    $('#pg-text').value = linesText();
-    $('#pg-lines-count').textContent = `${pageLines.filter((x) => x.checked).length} of ${pageLines.length} lines checked`;
-  });
-  $('#pg-lines').addEventListener('keydown', (e) => {
-    const inp = e.target.closest('.line-input');
-    if (!inp || e.key !== 'Enter') return;
-    e.preventDefault();
-    const next = document.getElementById('ln-' + (+inp.dataset.i + 1));
-    if (next) next.focus(); else inp.blur();
-  });
-
   $('#pg-zoom').onclick = () => { $('#zoom-img').src = $('#pg-img').src; $('#zoom').hidden = false; };
   $('#pg-img').onclick = () => $('#pg-zoom').click();
   $('#zoom-close').onclick = () => { $('#zoom').hidden = true; };
-
-  // Reader choice and download progress
-  for (const r of $$('input[name="reader"]')) {
-    r.checked = r.value === readerChoice();
-    r.onchange = () => { if (r.checked) setReaderChoice(r.value); };
-  }
-  $('#btn-warm').onclick = () => {
-    setReaderChoice('handwriting');
-    for (const r of $$('input[name="reader"]')) r.checked = r.value === 'handwriting';
-    showReaderNote('Getting the handwriting reader ready…');
-    HTR.warm();
-  };
-  const dl = new Map();
-  HTR.onEvent((e) => {
-    if (e.type === 'download') {
-      dl.set(e.file, [e.loaded, e.total]);
-      let l = 0, t = 0;
-      for (const [a, b] of dl.values()) { l += a; t += b; }
-      showReaderNote(`Downloading the handwriting reader (one time only): ${Math.round((l / t) * 100)}% of ${Math.round(t / 1048576)} MB. Keep the app open.`);
-    } else if (e.type === 'ready') {
-      showReaderNote('The handwriting reader is ready and saved on this phone.', 4000);
-    } else if (e.type === 'failed') {
-      showReaderNote('The handwriting reader could not be downloaded. Check the internet connection and try again.', 6000);
-    }
-  });
 
   // Claude reader settings
   const claudeNote = (msg) => { const n = $('#claude-note'); n.textContent = msg; n.hidden = !msg; };
@@ -1367,24 +1150,21 @@ function wire() {
     claudeNote('Checking the key…');
     try {
       await ClaudeReader.test();
-      setReaderChoice('claude');
-      for (const r of $$('input[name="reader"]')) r.checked = r.value === 'claude';
-      claudeNote('The key works. New pages will now be read by Claude.');
+      claudeNote('The key works. Every page you scan will now be read by Claude.');
+      OCR.resume();   // read any pages that were waiting for the key
     } catch (e) {
       claudeNote(e.message);
     }
   };
   $('#btn-claude-all').onclick = async () => {
     if (!ClaudeReader.ready()) { claudeNote('Add and test your Claude API key first.'); return; }
-    setReaderChoice('claude');
-    for (const r of $$('input[name="reader"]')) r.checked = r.value === 'claude';
     const todo = state.pages.filter((p) => !p.reviewed && !(p.ocr && p.ocr.engine === 'claude' && p.ocr.status === 'done'));
     if (!todo.length) { claudeNote('Every page has already been read by Claude or checked by hand.'); return; }
     const m = ClaudeReader.MODELS[ClaudeReader.model()];
     const est = todo.length * (m.inPerM * 2600 + m.outPerM * 900) / 1e6;
     claudeNote(`Reading ${todo.length} page${todo.length === 1 ? '' : 's'}, roughly $${est.toFixed(2)}. Keep the app open and on Wi-Fi; you can watch the list fill in.`);
     for (const p of todo) {
-      p.ocr = { status: 'waiting', confidence: null };
+      p.ocr = { status: 'waiting' };
       await DB.putPage(stored(p)).catch(() => {});
       OCR.enqueue(p.id);
     }
@@ -1396,14 +1176,13 @@ function wire() {
   $('#btn-pdf-all').onclick = () => exportPDF(searchPagesAll(), 'Journal - all pages');
   $('#btn-text-all').onclick = () => exportAllText();
   $('#btn-backup').onclick = () => makeBackup();
-  $('#btn-training').onclick = () => exportTraining();
   $('#btn-restore').onclick = () => $('#in-restore').click();
   $('#in-restore').addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) restoreBackup(f);
     e.target.value = '';
   });
-  $('#version').textContent = `Journal Keeper ${APP_VERSION}. Works offline. Nothing leaves this phone unless you share it.`;
+  $('#version').textContent = `Journal Keeper ${APP_VERSION}. Your pages are kept on this phone; each photo is sent only to Claude to be read.`;
 
   // Save typing if the app is closed or switched away from a page
   document.addEventListener('visibilitychange', () => {
@@ -1419,9 +1198,10 @@ async function init() {
     console.error(e);
     toast('This browser is blocking storage. Open Journal Keeper from the Home Screen, not a private window.', 8000);
   }
-  Learner.rebuild(state.pages);
   render();
   OCR.resume();
+  // Pages that waited for internet carry on as soon as it is back
+  window.addEventListener('online', () => OCR.resume());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // Always check for a newer version, and reload once when it takes over, so updates show straight away.
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});

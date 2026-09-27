@@ -1,12 +1,9 @@
 // Keeps Journal Keeper working without internet: every file the app needs is
-// stored on the phone. The large handwriting reader files are stored the first
-// time they are used (the model itself is kept by the reader in its own cache).
-const CACHE = 'journal-keeper-v7';
+// stored on the phone. (Reading pages with Claude needs internet; pages wait until it is back.)
+const CACHE = 'journal-keeper-v8';
 const FILES = [
-  './', 'index.html', 'styles.css', 'reader.js', 'claude-reader.js', 'app.js', 'htr-worker.js', 'manifest.webmanifest',
-  'vendor/tesseract.min.js', 'vendor/worker.min.js', 'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs',
-  'vendor/core/tesseract-core-lstm.wasm.js', 'vendor/core/tesseract-core-simd-lstm.wasm.js',
-  'lang/eng.traineddata.gz.wasm',
+  './', 'index.html', 'styles.css', 'claude-reader.js', 'app.js', 'manifest.webmanifest',
+  'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs',
   'fonts/fraunces.woff2', 'fonts/fraunces-italic.woff2', 'fonts/atkinson-400.woff2', 'fonts/atkinson-400-italic.woff2',
   'fonts/atkinson-700.woff2', 'fonts/caveat-600.woff2',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -24,35 +21,14 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Adding these two headers lets the handwriting reader use several processor
-// cores at once (GitHub Pages can't set them itself).
-function isolate(res) {
-  if (!res || res.status === 0 || res.type === 'opaque') return res;
-  const h = new Headers(res.headers);
-  h.set('Cross-Origin-Opener-Policy', 'same-origin');
-  h.set('Cross-Origin-Embedder-Policy', 'require-corp');
-  h.set('Cross-Origin-Resource-Policy', 'same-origin');
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
-}
-
-// App files: try the network first so updates arrive, fall back to the saved copy.
-// Big engine files: use the saved copy first.
+// Try the network first so updates arrive straight away, fall back to the saved copy offline.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  const big = /\/(vendor|lang)\//.test(url.pathname);
-  if (big) {
-    e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
-      return res;
-    })).then(isolate));
-    return;
-  }
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' }).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html')))
-      .then(isolate)
   );
 });

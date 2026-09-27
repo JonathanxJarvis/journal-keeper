@@ -129,16 +129,6 @@
   </figure>
 
   <div id="pg-ocr-note" class="note" hidden></div>
-
-  <section id="pg-lines-wrap" class="lines-wrap" hidden>
-    <div class="lines-head">
-      <h2>Check line by line</h2>
-      <span id="pg-lines-count" class="muted small"></span>
-    </div>
-    <p class="tip">Make each box match the picture above it. Type it, or tap the microphone on the keyboard and read the line aloud. Every checked line is saved to teach the reader this handwriting.</p>
-    <ol id="pg-lines" class="lines"></ol>
-  </section>
-
   <div class="form">
     <div class="field">
       <label for="pg-title">Title</label>
@@ -170,7 +160,7 @@
   <div class="page-actions">
     <button class="btn primary big" id="pg-save">Save changes</button>
     <button class="btn ghost big" id="pg-pdf">Save as PDF</button>
-    <button class="btn ghost" id="pg-reocr">Read the handwriting again</button>
+    <button class="btn ghost" id="pg-reocr">Read this page again</button>
     <button class="btn danger-ghost" id="pg-delete">Delete this page</button>
   </div>
   <div id="pg-confirm" class="confirm" hidden>
@@ -190,32 +180,8 @@
     <span class="spacer"></span>
   </header>
 
-  <div class="card">
-    <p class="kicker">your collection</p>
-    <h2>Your pages</h2>
-    <p id="stats" class="muted"></p>
-    <div class="stack">
-      <button class="btn primary" id="btn-pdf-all">Make one PDF of every page</button>
-      <button class="btn ghost" id="btn-text-all">Save all the text as one document</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <p class="kicker">how pages are read</p>
-    <h2>Choose a reader</h2>
-    <p id="learned" class="muted"></p>
-    <div class="stack">
-      <label class="check"><input type="radio" name="reader" value="claude"> <span><b>Claude reader</b>: by far the most accurate for cursive. Needs internet and your own Claude API key (paid per page, about 1 to 1.5 cents each).</span></label>
-      <label class="check"><input type="radio" name="reader" value="handwriting"> <span><b>Handwriting reader</b>: best for cursive and joined-up writing. Downloads about 80 MB once, then works offline. About 2 seconds per line.</span></label>
-      <label class="check"><input type="radio" name="reader" value="print"> <span><b>Quick reader</b>: small and fast, but only good for printing and very neat writing.</span></label>
-      <button class="btn ghost" id="btn-warm">Download the handwriting reader now</button>
-      <div class="note info reader-note" hidden></div>
-    </div>
-    <p class="muted small">Tip: use Wi-Fi for the download.</p>
-  </div>
-
   <div class="card" id="claude-card">
-    <p class="kicker">most accurate</p>
+    <p class="kicker">reads the handwriting</p>
     <h2>Claude reader setup</h2>
     <div class="stack">
       <label for="claude-key">Claude API key</label>
@@ -236,11 +202,12 @@
   </div>
 
   <div class="card">
-    <p class="kicker">teach the reader</p>
-    <h2>Training lines</h2>
-    <p id="training-count" class="muted"></p>
+    <p class="kicker">your collection</p>
+    <h2>Your pages</h2>
+    <p id="stats" class="muted"></p>
     <div class="stack">
-      <button class="btn ghost" id="btn-training">Save the checked lines as a training file</button>
+      <button class="btn primary" id="btn-pdf-all">Make one PDF of every page</button>
+      <button class="btn ghost" id="btn-text-all">Save all the text as one document</button>
     </div>
   </div>
 
@@ -261,12 +228,12 @@
     <ol>
       <li><b>Scan.</b> Lay the page flat in good light. Tap <b>Scan a page</b> and take the photo. Or use <b>Choose photos</b> to pick several pages you already photographed.</li>
       <li><b>Trim.</b> Drag the corners so only the page is left, then tap <b>Save page</b>.</li>
-      <li><b>Reading.</b> Each page is turned into typed words by the reader chosen above. The Claude reader is the most accurate and needs internet; the others work on the phone alone but make more mistakes.</li>
+      <li><b>Reading.</b> Claude reads each page and types it up, adding a title, the date and a few topics. It needs internet; without it, pages wait and are read as soon as the phone is back online.</li>
       <li><b>Check.</b> Open a page to fix any words it got wrong, and add a title, date, notebook and tags. Tags like <i>family</i> or <i>chapter 3</i> make pages easy to find later.</li>
       <li><b>Search.</b> Type words in the search box. Put words in quotes to find an exact phrase, like <i>"summer house"</i>. Use <b>Filters</b> to narrow by notebook, year or tag.</li>
       <li><b>PDFs.</b> Open a page and tap <b>Save as PDF</b>, or search and tap <b>Make a PDF of these</b> to get all matching pages in one file.</li>
     </ol>
-    <p class="muted">No reader is perfect with every hand, so it is worth glancing over each page. Every word you fix is remembered and fixed automatically on later pages, and search also finds words that are one letter off.</p>
+    <p class="muted">Claude reads cursive very well, but it is still worth glancing over each page and fixing anything it got wrong. Search also finds words that are one letter off.</p>
   </div>
   <p class="muted center small" id="version"></p>
 </section>
@@ -290,9 +257,7 @@
   </div>
 </div>
 
-<script src="vendor/tesseract.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
-<script src="reader.js"></script>
 <script src="claude-reader.js"></script>
 <script src="app.js"></script>
 </body>
