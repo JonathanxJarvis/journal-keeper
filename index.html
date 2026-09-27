@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Journal Keeper</title>
 <meta name="description" content="Scan handwritten journal pages, turn them into text and PDFs, and search them.">
-<meta name="theme-color" content="#1d3557">
+<meta name="theme-color" content="#f5efe4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17130f" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -20,13 +21,16 @@
 <!-- ============ NOTES LIST (home) ============ -->
 <section id="view-list" class="view">
   <header class="topbar">
-    <h1>Journal Keeper</h1>
-    <button class="icon-btn" id="btn-menu" aria-label="Backup and help">☰</button>
+    <div class="brand">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H19v-5"/><path d="M8 7.5h7M8 11h5"/></svg></span>
+      <div><h1>Journal Keeper</h1><span class="brand-sub">every page, kept &amp; findable</span></div>
+    </div>
+    <button class="icon-btn" id="btn-menu" aria-label="Settings and help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   </header>
 
   <div class="search-wrap">
     <label for="q" class="sr-only">Search your notes</label>
-    <input id="q" type="search" placeholder="Search words, names, places…" autocomplete="off" enterkeyhint="search">
+    <input id="q" type="search" placeholder="Search words or names" autocomplete="off" enterkeyhint="search">
     <button class="link-btn" id="btn-filters" aria-expanded="false">Filters</button>
   </div>
 
@@ -65,14 +69,19 @@
   <ul id="list" class="list"></ul>
 
   <div id="empty" class="empty" hidden>
-    <p class="empty-title">No pages yet</p>
-    <p>Tap <b>Scan a page</b> below, take a photo of a journal page, and it will show up here.</p>
+    <p class="empty-title">Your journal starts here</p>
+    <p class="empty-hand">three easy steps</p>
+    <ol class="steps">
+      <li><span><b>Photograph</b> a page with <b>Scan a page</b>, or pick many at once with <b>Choose photos</b>.</span></li>
+      <li><span><b>Wait a moment</b> while the handwriting is turned into typed words.</span></li>
+      <li><span><b>Search</b> any word or name at the top to find every page it is on.</span></li>
+    </ol>
     <button class="btn ghost" id="btn-sample">Try it with a sample page</button>
   </div>
 
   <div class="bottom-bar">
-    <button class="btn primary big" id="btn-scan">📷&nbsp; Scan a page</button>
-    <button class="btn ghost big" id="btn-pick">Choose photos</button>
+    <button class="btn primary big" id="btn-scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>Scan a page</button>
+    <button class="btn ghost big" id="btn-pick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/><path d="m3 16 4-4 4 4 2-2 4 4"/></svg>Choose photos</button>
   </div>
   <input type="file" id="in-camera" accept="image/*" capture="environment" hidden>
   <input type="file" id="in-photos" accept="image/*" multiple hidden>
@@ -81,7 +90,7 @@
 <!-- ============ ADJUST SCAN ============ -->
 <section id="view-adjust" class="view" hidden>
   <header class="topbar">
-    <button class="icon-btn" id="adj-cancel" aria-label="Cancel">✕</button>
+    <button class="icon-btn" id="adj-cancel" aria-label="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <h1 id="adj-title">Adjust the page</h1>
     <span class="spacer"></span>
   </header>
@@ -109,7 +118,7 @@
 <!-- ============ PAGE DETAIL ============ -->
 <section id="view-page" class="view" hidden>
   <header class="topbar">
-    <button class="icon-btn" id="pg-back" aria-label="Back to notes">‹</button>
+    <button class="icon-btn" id="pg-back" aria-label="Back to all pages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
     <h1>Page</h1>
     <span class="spacer"></span>
   </header>
@@ -176,12 +185,13 @@
 <!-- ============ MENU: backup & help ============ -->
 <section id="view-menu" class="view" hidden>
   <header class="topbar">
-    <button class="icon-btn" id="menu-back" aria-label="Back to notes">‹</button>
-    <h1>Backup &amp; help</h1>
+    <button class="icon-btn" id="menu-back" aria-label="Back to all pages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
+    <h1>Settings &amp; help</h1>
     <span class="spacer"></span>
   </header>
 
   <div class="card">
+    <p class="kicker">your collection</p>
     <h2>Your pages</h2>
     <p id="stats" class="muted"></p>
     <div class="stack">
@@ -191,7 +201,8 @@
   </div>
 
   <div class="card">
-    <h2>Handwriting reader</h2>
+    <p class="kicker">how pages are read</p>
+    <h2>Choose a reader</h2>
     <p id="learned" class="muted"></p>
     <div class="stack">
       <label class="check"><input type="radio" name="reader" value="claude"> <span><b>Claude reader</b>: by far the most accurate for cursive. Needs internet and your own Claude API key (paid per page, about 1 to 1.5 cents each).</span></label>
@@ -204,18 +215,19 @@
   </div>
 
   <div class="card" id="claude-card">
-    <h2>Claude reader</h2>
+    <p class="kicker">most accurate</p>
+    <h2>Claude reader setup</h2>
     <div class="stack">
       <label for="claude-key">Claude API key</label>
       <input id="claude-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-...">
       <label for="claude-model">Model</label>
       <select id="claude-model">
-        <option value="claude-sonnet-5">Sonnet 5 (about 1 to 1.5 cents a page)</option>
-        <option value="claude-opus-5">Opus 5 (best, about 2.5 to 3.5 cents a page)</option>
+        <option value="claude-sonnet-5">Sonnet 5 · about 1¢ a page</option>
+        <option value="claude-opus-5">Opus 5 · best, about 3¢ a page</option>
       </select>
       <label for="claude-hint">Notes to help reading (optional)</label>
       <textarea id="claude-hint" rows="3" placeholder="For example: names that come up often (Margaret, Uncle Bert), places, the language used."></textarea>
-      <button class="btn" id="btn-claude-save">Save and test the key</button>
+      <button class="btn primary" id="btn-claude-save">Save and test the key</button>
       <button class="btn ghost" id="btn-claude-all">Read all unchecked pages with Claude</button>
       <p id="claude-spent" class="muted"></p>
       <div class="note info" id="claude-note" hidden></div>
@@ -224,6 +236,7 @@
   </div>
 
   <div class="card">
+    <p class="kicker">teach the reader</p>
     <h2>Training lines</h2>
     <p id="training-count" class="muted"></p>
     <div class="stack">
@@ -232,6 +245,7 @@
   </div>
 
   <div class="card">
+    <p class="kicker">keep it safe</p>
     <h2>Backup</h2>
     <p>Your pages are kept only on this phone. Save a backup now and then, and keep it somewhere safe such as iCloud Drive, Google Drive or email. You can also use a backup to move everything to a new phone.</p>
     <div class="stack">
@@ -242,23 +256,24 @@
   </div>
 
   <div class="card help">
+    <p class="kicker">step by step</p>
     <h2>How to use it</h2>
     <ol>
       <li><b>Scan.</b> Lay the page flat in good light. Tap <b>Scan a page</b> and take the photo. Or use <b>Choose photos</b> to pick several pages you already photographed.</li>
       <li><b>Trim.</b> Drag the corners so only the page is left, then tap <b>Save page</b>.</li>
-      <li><b>Reading.</b> The phone reads the handwriting by itself. It takes a little while per page and works without internet.</li>
+      <li><b>Reading.</b> Each page is turned into typed words by the reader chosen above. The Claude reader is the most accurate and needs internet; the others work on the phone alone but make more mistakes.</li>
       <li><b>Check.</b> Open a page to fix any words it got wrong, and add a title, date, notebook and tags. Tags like <i>family</i> or <i>chapter 3</i> make pages easy to find later.</li>
       <li><b>Search.</b> Type words in the search box. Put words in quotes to find an exact phrase, like <i>"summer house"</i>. Use <b>Filters</b> to narrow by notebook, year or tag.</li>
       <li><b>PDFs.</b> Open a page and tap <b>Save as PDF</b>, or search and tap <b>Make a PDF of these</b> to get all matching pages in one file.</li>
     </ol>
-    <p class="muted">Handwriting is read on the phone with free software, one line at a time. It handles cursive far better than ordinary text scanners, but it still makes mistakes, especially on faded or cramped writing. Every word you fix is remembered and fixed automatically on later pages. Search also finds words that are one letter off.</p>
+    <p class="muted">No reader is perfect with every hand, so it is worth glancing over each page. Every word you fix is remembered and fixed automatically on later pages, and search also finds words that are one letter off.</p>
   </div>
   <p class="muted center small" id="version"></p>
 </section>
 
 <!-- Full-size image viewer -->
 <div id="zoom" class="zoom" hidden>
-  <button class="icon-btn zoom-close" id="zoom-close" aria-label="Close">✕</button>
+  <button class="icon-btn zoom-close" id="zoom-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <img id="zoom-img" alt="Scanned journal page, full size">
 </div>
 
