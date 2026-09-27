@@ -1,7 +1,7 @@
 // Keeps Journal Keeper working without internet: every file the app needs is
 // stored on the phone. The large handwriting reader files are stored the first
 // time they are used (the model itself is kept by the reader in its own cache).
-const CACHE = 'journal-keeper-v3';
+const CACHE = 'journal-keeper-v4';
 const FILES = [
   './', 'index.html', 'styles.css', 'reader.js', 'app.js', 'htr-worker.js', 'manifest.webmanifest',
   'vendor/tesseract.min.js', 'vendor/worker.min.js', 'vendor/jspdf.umd.min.js',

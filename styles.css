@@ -267,3 +267,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sheet { position: fixed; inset: 0; z-index: 35; background: rgba(10, 15, 22, .55); display: grid; align-items: end; }
 .sheet-box { background: var(--surface); padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); border-radius: 18px 18px 0 0; display: grid; gap: 10px; max-width: 760px; width: 100%; margin: 0 auto; }
 .sheet-box p { margin: 0 0 4px; font-weight: 600; }
+
+/* ---------- line by line ---------- */
+.lines-wrap { margin-top: 16px; }
+.lines-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.lines-head h2 { margin: 0; font: 600 21px var(--serif); color: var(--brand); }
+.lines-wrap .tip { margin: 6px 0 12px; }
+.lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.line-row { display: grid; gap: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.line-row.done { border-color: var(--ok); }
+.line-row img { display: block; width: 100%; height: auto; max-height: 90px; object-fit: contain; object-position: left center; background: #fff; border-radius: 6px; }
+.line-input { width: 100%; min-height: 50px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font: 19px/1.4 var(--serif); }

@@ -121,6 +121,15 @@
 
   <div id="pg-ocr-note" class="note" hidden></div>
 
+  <section id="pg-lines-wrap" class="lines-wrap" hidden>
+    <div class="lines-head">
+      <h2>Check line by line</h2>
+      <span id="pg-lines-count" class="muted small"></span>
+    </div>
+    <p class="tip">Make each box match the picture above it. Type it, or tap the microphone on the keyboard and read the line aloud. Every checked line is saved to teach the reader this handwriting.</p>
+    <ol id="pg-lines" class="lines"></ol>
+  </section>
+
   <div class="form">
     <div class="field">
       <label for="pg-title">Title</label>
@@ -142,9 +151,9 @@
       <input id="pg-tags" type="text" placeholder="e.g. family, army, chapter 3" autocapitalize="none">
     </div>
     <div class="field">
-      <label for="pg-text">What the page says</label>
+      <label for="pg-text">Whole page text</label>
       <textarea id="pg-text" rows="12" placeholder="The words from this page appear here after reading. You can fix or type them."></textarea>
-      <p class="tip">Tip: tap the microphone on the keyboard to read the page aloud instead of typing.</p>
+      <p class="tip">Tips: tap the microphone on the keyboard to read the page aloud. On iPhone you can also tap the box, tap again and choose <b>Scan Text</b> to let the phone read the page with its camera. On Android, use the Google Lens button on the keyboard.</p>
     </div>
     <label class="check"><input type="checkbox" id="pg-reviewed"> I have checked this text</label>
   </div>
@@ -191,6 +200,14 @@
       <div class="note info reader-note" hidden></div>
     </div>
     <p class="muted small">Tip: use Wi-Fi for the download.</p>
+  </div>
+
+  <div class="card">
+    <h2>Training lines</h2>
+    <p id="training-count" class="muted"></p>
+    <div class="stack">
+      <button class="btn ghost" id="btn-training">Save the checked lines as a training file</button>
+    </div>
   </div>
 
   <div class="card">

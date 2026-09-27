@@ -2,7 +2,7 @@
    search them, and save them as PDFs. Everything stays on this device. */
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -19,11 +19,13 @@ const DB = (() => {
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((resolve, reject) => {
-      const req = indexedDB.open('journal-keeper', 1);
+      const req = indexedDB.open('journal-keeper', 2);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+        // one picture per line of writing, with its text (used for checking and training)
+        if (!db.objectStoreNames.contains('lines')) db.createObjectStore('lines');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -51,10 +53,14 @@ const DB = (() => {
       t.objectStore('pages').put(p);
       t.objectStore('images').put(img, p.id);
     }),
-    deletePage: (id) => tx(['pages', 'images'], 'readwrite', (t) => {
+    deletePage: (id) => tx(['pages', 'images', 'lines'], 'readwrite', (t) => {
       t.objectStore('pages').delete(id);
       t.objectStore('images').delete(id);
+      t.objectStore('lines').delete(id);
     }),
+    getLines: (id) => tx(['lines'], 'readonly', (t) => req2p(t.objectStore('lines').get(id))),
+    putLines: (id, items) => tx(['lines'], 'readwrite', (t) => { t.objectStore('lines').put(items, id); }),
+    allLines: () => tx(['lines'], 'readonly', (t) => req2p(t.objectStore('lines').getAll())),
   };
 })();
 
@@ -211,8 +217,8 @@ function renderPage(src, turns, rect, maxSide) {
   return out;
 }
 
-/* "Clean scan": grey, evens out shadows by dividing by a blurred copy of the
-   page (the paper), then darkens the ink. Makes pages easier to read and helps
+/* "Clean scan": evens out shadows by dividing by a blurred copy of the
+   page (the paper), then darkens the ink, keeping the pen colour. Makes pages easier to read and helps
    the handwriting reader. */
 function cleanScan(canvas) {
   const w = canvas.width, h = canvas.height;
@@ -238,12 +244,13 @@ function cleanScan(canvas) {
   const bg = bc.getImageData(0, 0, w, h).data;
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    const b = 0.299 * bg[i] + 0.587 * bg[i + 1] + 0.114 * bg[i + 2];
-    let v = Math.min(1, l / Math.max(b * 0.96, 1));   // paper -> ~1.0
-    v = Math.pow(v, 2.2);                               // deepen ink
-    const g = v > 0.93 ? 255 : Math.round(v * 255);
-    d[i] = d[i + 1] = d[i + 2] = g;
+    // Each colour channel divided by the paper's own colour: paper turns white,
+    // shadows vanish, and blue or black ink keeps its colour.
+    for (let c = 0; c < 3; c++) {
+      let v = Math.min(1, d[i + c] / Math.max(bg[i + c] * 0.94, 1));
+      v = Math.pow(v, 1.8);
+      d[i + c] = v > 0.95 ? 255 : Math.round(v * 255);
+    }
   }
   ctx.putImageData(img, 0, 0);
   big.width = big.height = 0;
@@ -485,10 +492,11 @@ const OCR = (() => {
       try {
         const blob = await DB.getImage(id);
         let raw = '', confidence = null, engine = 'print', note = '';
+        let lines = [];
+        const got = [];
+        try { lines = await findLines(blob); } catch (e) { console.error(e); }
         if (readerChoice() === 'handwriting' && HTR.supported()) {
           try {
-            const lines = await findLines(blob);
-            const got = [];
             for (let i = 0; i < lines.length; i++) {
               readProgress.set(id, `Reading line ${i + 1} of ${lines.length}…`);
               refreshItem(id);
@@ -515,6 +523,14 @@ const OCR = (() => {
         }
         readProgress.delete(id);
         const text = Learner.apply(raw);
+        // Keep each line's picture so it can be checked (and later used to train the reader)
+        const items = [];
+        for (let i = 0; i < lines.length; i++) {
+          const read = got[i] || '';
+          items.push({ img: await canvasToBlob(lines[i], 'image/jpeg', 0.85), read, text: Learner.apply(read), checked: false });
+        }
+        await DB.putLines(id, items);
+        if (state.currentId === id) pageLines = items;
         // If this page is open, keep what has been typed so far
         if (state.currentId === id) await savePage({ quiet: true });
         const fresh = (await DB.getPage(id)) || page;
@@ -783,10 +799,37 @@ function renderFilterOptions() {
    Page detail
    ========================================================= */
 let pageImgURL = null;
+let pageLines = null;        // line pictures + text of the open page
+let lineURLs = [];
+
+function renderLines() {
+  const wrap = $('#pg-lines-wrap');
+  for (const u of lineURLs) URL.revokeObjectURL(u);
+  lineURLs = [];
+  if (!pageLines || !pageLines.length) { wrap.hidden = true; $('#pg-lines').innerHTML = ''; return; }
+  wrap.hidden = false;
+  const done = pageLines.filter((l) => l.checked).length;
+  $('#pg-lines-count').textContent = `${done} of ${pageLines.length} lines checked`;
+  $('#pg-lines').innerHTML = pageLines.map((l, i) => {
+    const u = URL.createObjectURL(l.img);
+    lineURLs.push(u);
+    return `<li class="line-row${l.checked ? ' done' : ''}">
+      <img src="${u}" alt="Line ${i + 1} of the page">
+      <label class="sr-only" for="ln-${i}">Line ${i + 1}</label>
+      <input id="ln-${i}" class="line-input" data-i="${i}" type="text" value="${esc(l.text)}" placeholder="Type or say line ${i + 1}" enterkeyhint="next" autocomplete="off" spellcheck="true">
+    </li>`;
+  }).join('');
+}
+
+function linesText() {
+  return pageLines.map((l) => l.text.trim()).filter(Boolean).join('\n');
+}
+
 async function openPage(id) {
   const p = state.pages.find((x) => x.id === id);
   if (!p) return;
   state.currentId = id;
+  try { pageLines = (await DB.getLines(id)) || null; } catch { pageLines = null; }
   $('#pg-confirm').hidden = true;
   fillPageForm(p);
   showView('page');
@@ -821,6 +864,7 @@ function fillPageForm(p) {
   $('#pg-notebook').value = p.notebook || '';
   $('#pg-tags').value = (p.tags || []).join(', ');
   $('#pg-reviewed').checked = !!p.reviewed;
+  renderLines();
 }
 
 function stored(p) {
@@ -840,6 +884,10 @@ async function savePage({ quiet = false } = {}) {
   p.reviewed = $('#pg-reviewed').checked;
   p.updated = Date.now();
   rememberNotebook(p.notebook);
+  if (pageLines && pageLines.length) {
+    if (p.reviewed) for (const l of pageLines) if (l.text.trim()) l.checked = true;
+    await DB.putLines(p.id, pageLines);
+  }
   if (p.readText) {
     p.learned = Learner.diffPairs(p.readText, p.text);
     Learner.rebuild(state.pages);
@@ -999,6 +1047,30 @@ function searchPagesAll() {
   return [...state.pages].sort((a, b) => (a.dateWritten || '9999').localeCompare(b.dateWritten || '9999') || a.created - b.created);
 }
 
+/* Every line Dad has checked, as picture + text pairs. This is what a
+   handwriting reader needs in order to be trained on his writing. */
+async function exportTraining() {
+  busy('Collecting checked lines…');
+  try {
+    const all = await DB.allLines();
+    const parts = ['{"app":"journal-keeper-training","version":1,"lines":['];
+    let n = 0;
+    for (const items of all) for (const l of items || []) {
+      if (!l.checked || !l.text.trim()) continue;
+      parts.push((n ? ',' : '') + JSON.stringify({ text: l.text.trim(), image: await blobToDataURL(l.img) }));
+      n++;
+    }
+    parts.push(']}');
+    busy(false);
+    if (!n) { toast('No checked lines yet. Open a page and check its lines first.', 4000); return; }
+    await deliverFile(new Blob(parts, { type: 'application/json' }), `Journal Keeper training lines (${n}).json`);
+  } catch (e) {
+    console.error(e);
+    busy(false);
+    toast('The training file could not be made.', 4000);
+  }
+}
+
 async function renderStats() {
   const n = state.pages.length;
   const checked = state.pages.filter((p) => p.reviewed).length;
@@ -1017,6 +1089,12 @@ async function renderStats() {
   $('#btn-pdf-all').disabled = !n;
   $('#btn-text-all').disabled = !n;
   $('#btn-backup').disabled = !n;
+  try {
+    let lines = 0;
+    for (const items of await DB.allLines()) for (const l of items || []) if (l.checked && l.text.trim()) lines++;
+    $('#training-count').textContent = `${lines} line${lines === 1 ? '' : 's'} checked so far. About 200 lines are enough to train the reader on this handwriting.`;
+    $('#btn-training').disabled = !lines;
+  } catch { /* optional */ }
 }
 
 let readerNoteTimer;
@@ -1152,6 +1230,7 @@ function wire() {
   $('#pg-back').onclick = async () => {
     await savePage({ quiet: true });
     state.currentId = null;
+    pageLines = null;
     showView('list'); render();
   };
   $('#pg-save').onclick = async () => {
@@ -1186,6 +1265,24 @@ function wire() {
     toast('Page deleted');
     showView('list'); render();
   };
+  $('#pg-lines').addEventListener('input', (e) => {
+    const inp = e.target.closest('.line-input');
+    if (!inp || !pageLines) return;
+    const l = pageLines[+inp.dataset.i];
+    l.text = inp.value;
+    l.checked = true;
+    inp.parentElement.classList.add('done');
+    $('#pg-text').value = linesText();
+    $('#pg-lines-count').textContent = `${pageLines.filter((x) => x.checked).length} of ${pageLines.length} lines checked`;
+  });
+  $('#pg-lines').addEventListener('keydown', (e) => {
+    const inp = e.target.closest('.line-input');
+    if (!inp || e.key !== 'Enter') return;
+    e.preventDefault();
+    const next = document.getElementById('ln-' + (+inp.dataset.i + 1));
+    if (next) next.focus(); else inp.blur();
+  });
+
   $('#pg-zoom').onclick = () => { $('#zoom-img').src = $('#pg-img').src; $('#zoom').hidden = false; };
   $('#pg-img').onclick = () => $('#pg-zoom').click();
   $('#zoom-close').onclick = () => { $('#zoom').hidden = true; };
@@ -1221,6 +1318,7 @@ function wire() {
   $('#btn-pdf-all').onclick = () => exportPDF(searchPagesAll(), 'Journal - all pages');
   $('#btn-text-all').onclick = () => exportAllText();
   $('#btn-backup').onclick = () => makeBackup();
+  $('#btn-training').onclick = () => exportTraining();
   $('#btn-restore').onclick = () => $('#in-restore').click();
   $('#in-restore').addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
