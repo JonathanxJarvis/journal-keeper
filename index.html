@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Journal Keeper</title>
+<meta name="description" content="Scan handwritten journal pages, turn them into text and PDFs, and search them.">
+<meta name="theme-color" content="#1d3557">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Journal Keeper">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ NOTES LIST (home) ============ -->
+<section id="view-list" class="view">
+  <header class="topbar">
+    <h1>Journal Keeper</h1>
+    <button class="icon-btn" id="btn-menu" aria-label="Backup and help">☰</button>
+  </header>
+
+  <div class="search-wrap">
+    <label for="q" class="sr-only">Search your notes</label>
+    <input id="q" type="search" placeholder="Search words, names, places…" autocomplete="off" enterkeyhint="search">
+    <button class="link-btn" id="btn-filters" aria-expanded="false">Filters</button>
+  </div>
+
+  <div id="filters" class="filters" hidden>
+    <div class="field">
+      <label for="f-notebook">Notebook</label>
+      <select id="f-notebook"><option value="">All notebooks</option></select>
+    </div>
+    <div class="field">
+      <label for="f-year">Year written</label>
+      <select id="f-year"><option value="">Any year</option></select>
+    </div>
+    <div class="field">
+      <label for="f-sort">Order</label>
+      <select id="f-sort">
+        <option value="written-asc">Oldest writing first</option>
+        <option value="written-desc">Newest writing first</option>
+        <option value="scanned-desc">Most recently scanned</option>
+      </select>
+    </div>
+    <label class="check"><input type="checkbox" id="f-review"> Only pages that still need checking</label>
+    <div>
+      <div class="label-sm">Tags</div>
+      <div id="f-tags" class="chips"></div>
+    </div>
+    <button class="btn ghost small" id="btn-clear-filters">Clear filters</button>
+  </div>
+
+  <div class="result-bar">
+    <span id="result-count"></span>
+    <button class="link-btn" id="btn-pdf-results" hidden>Make a PDF of these</button>
+  </div>
+
+  <ul id="list" class="list"></ul>
+
+  <div id="empty" class="empty" hidden>
+    <p class="empty-title">No pages yet</p>
+    <p>Tap <b>Scan a page</b> below, take a photo of a journal page, and it will show up here.</p>
+    <button class="btn ghost" id="btn-sample">Try it with a sample page</button>
+  </div>
+
+  <div class="bottom-bar">
+    <button class="btn primary big" id="btn-scan">📷&nbsp; Scan a page</button>
+    <button class="btn ghost big" id="btn-pick">Choose photos</button>
+  </div>
+  <input type="file" id="in-camera" accept="image/*" capture="environment" hidden>
+  <input type="file" id="in-photos" accept="image/*" multiple hidden>
+</section>
+
+<!-- ============ ADJUST SCAN ============ -->
+<section id="view-adjust" class="view" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="adj-cancel" aria-label="Cancel">✕</button>
+    <h1 id="adj-title">Adjust the page</h1>
+    <span class="spacer"></span>
+  </header>
+  <p class="hint">Drag the corners to trim off the table or background.</p>
+  <div class="crop-stage" id="crop-stage">
+    <canvas id="adj-canvas"></canvas>
+    <div class="crop-rect" id="crop-rect">
+      <span class="h tl" data-h="tl"></span><span class="h tr" data-h="tr"></span>
+      <span class="h bl" data-h="bl"></span><span class="h br" data-h="br"></span>
+    </div>
+  </div>
+  <div class="adj-tools">
+    <button class="btn ghost" id="adj-rotate">↻ Turn</button>
+    <div class="seg" role="group" aria-label="Page look">
+      <button class="seg-btn on" data-look="clean">Clean scan</button>
+      <button class="seg-btn" data-look="color">Original color</button>
+    </div>
+  </div>
+  <div class="adj-actions">
+    <button class="btn primary big" id="adj-save">Save page</button>
+    <button class="btn ghost" id="adj-save-rest" hidden>Save all the rest as they are</button>
+  </div>
+</section>
+
+<!-- ============ PAGE DETAIL ============ -->
+<section id="view-page" class="view" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="pg-back" aria-label="Back to notes">‹</button>
+    <h1>Page</h1>
+    <span class="spacer"></span>
+  </header>
+
+  <figure class="page-img">
+    <img id="pg-img" alt="Scanned journal page">
+    <figcaption><button class="link-btn" id="pg-zoom">Show bigger</button></figcaption>
+  </figure>
+
+  <div id="pg-ocr-note" class="note" hidden></div>
+
+  <div class="form">
+    <div class="field">
+      <label for="pg-title">Title</label>
+      <input id="pg-title" type="text" placeholder="e.g. Trip to Lisbon">
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="pg-date">Date written</label>
+        <input id="pg-date" type="date">
+      </div>
+      <div class="field">
+        <label for="pg-notebook">Notebook</label>
+        <input id="pg-notebook" type="text" list="notebook-list" placeholder="e.g. Blue journal">
+        <datalist id="notebook-list"></datalist>
+      </div>
+    </div>
+    <div class="field">
+      <label for="pg-tags">Tags <span class="muted">(separate with commas)</span></label>
+      <input id="pg-tags" type="text" placeholder="e.g. family, army, chapter 3" autocapitalize="none">
+    </div>
+    <div class="field">
+      <label for="pg-text">What the page says</label>
+      <textarea id="pg-text" rows="12" placeholder="The words from this page appear here after reading. You can fix or type them."></textarea>
+      <p class="tip">Tip: tap the microphone on the keyboard to read the page aloud instead of typing.</p>
+    </div>
+    <label class="check"><input type="checkbox" id="pg-reviewed"> I have checked this text</label>
+  </div>
+
+  <div class="page-actions">
+    <button class="btn primary big" id="pg-save">Save changes</button>
+    <button class="btn ghost big" id="pg-pdf">Save as PDF</button>
+    <button class="btn ghost" id="pg-reocr">Read the handwriting again</button>
+    <button class="btn danger-ghost" id="pg-delete">Delete this page</button>
+  </div>
+  <div id="pg-confirm" class="confirm" hidden>
+    <p>Delete this page for good? This can't be undone.</p>
+    <div class="row-btns">
+      <button class="btn danger" id="pg-delete-yes">Yes, delete</button>
+      <button class="btn ghost" id="pg-delete-no">Keep it</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MENU: backup & help ============ -->
+<section id="view-menu" class="view" hidden>
+  <header class="topbar">
+    <button class="icon-btn" id="menu-back" aria-label="Back to notes">‹</button>
+    <h1>Backup &amp; help</h1>
+    <span class="spacer"></span>
+  </header>
+
+  <div class="card">
+    <h2>Your pages</h2>
+    <p id="stats" class="muted"></p>
+    <div class="stack">
+      <button class="btn primary" id="btn-pdf-all">Make one PDF of every page</button>
+      <button class="btn ghost" id="btn-text-all">Save all the text as one document</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Backup</h2>
+    <p>Your pages are kept only on this phone. Save a backup now and then, and keep it somewhere safe such as iCloud Drive, Google Drive or email. You can also use a backup to move everything to a new phone.</p>
+    <div class="stack">
+      <button class="btn primary" id="btn-backup">Save a backup file</button>
+      <button class="btn ghost" id="btn-restore">Restore from a backup file</button>
+      <input type="file" id="in-restore" accept=".json,application/json" hidden>
+    </div>
+  </div>
+
+  <div class="card help">
+    <h2>How to use it</h2>
+    <ol>
+      <li><b>Scan.</b> Lay the page flat in good light. Tap <b>Scan a page</b> and take the photo. Or use <b>Choose photos</b> to pick several pages you already photographed.</li>
+      <li><b>Trim.</b> Drag the corners so only the page is left, then tap <b>Save page</b>.</li>
+      <li><b>Reading.</b> The phone reads the handwriting by itself. It takes a little while per page and works without internet.</li>
+      <li><b>Check.</b> Open a page to fix any words it got wrong, and add a title, date, notebook and tags. Tags like <i>family</i> or <i>chapter 3</i> make pages easy to find later.</li>
+      <li><b>Search.</b> Type words in the search box. Put words in quotes to find an exact phrase, like <i>"summer house"</i>. Use <b>Filters</b> to narrow by notebook, year or tag.</li>
+      <li><b>PDFs.</b> Open a page and tap <b>Save as PDF</b>, or search and tap <b>Make a PDF of these</b> to get all matching pages in one file.</li>
+    </ol>
+    <p class="muted">Handwriting reading is done on the phone with free software. It does well on neat print and struggles with joined-up cursive, so checking the text matters. Search also finds words that are one letter off, to help with small reading mistakes.</p>
+  </div>
+  <p class="muted center small" id="version"></p>
+</section>
+
+<!-- Full-size image viewer -->
+<div id="zoom" class="zoom" hidden>
+  <button class="icon-btn zoom-close" id="zoom-close" aria-label="Close">✕</button>
+  <img id="zoom-img" alt="Scanned journal page, full size">
+</div>
+
+<!-- Busy overlay and toast -->
+<div id="busy" class="busy" hidden><div class="busy-box"><div class="spinner"></div><p id="busy-text">Working…</p></div></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Share / download sheet (used when the phone can't open its share menu) -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-box">
+    <p id="sheet-text">Your file is ready.</p>
+    <a class="btn primary big" id="sheet-link" download>Save the file</a>
+    <button class="btn ghost" id="sheet-close">Close</button>
+  </div>
+</div>
+
+<script src="vendor/tesseract.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
