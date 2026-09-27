@@ -145,7 +145,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .field textarea { font: 19px/1.6 var(--serif); resize: vertical; }
 .check { display: flex; align-items: center; gap: 10px; font-size: 17px; min-height: 44px; }
-.check input { width: 24px; height: 24px; accent-color: var(--accent); }
+.check input { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+.stack .check { align-items: flex-start; }
+.stack .check input { margin-top: 3px; }
+.reader-note { margin-top: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .chip {
   border: 1px solid var(--line); background: var(--ground);

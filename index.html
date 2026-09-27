@@ -55,6 +55,8 @@
     <button class="btn ghost small" id="btn-clear-filters">Clear filters</button>
   </div>
 
+  <div class="note info reader-note" hidden></div>
+
   <div class="result-bar">
     <span id="result-count"></span>
     <button class="link-btn" id="btn-pdf-results" hidden>Make a PDF of these</button>
@@ -180,6 +182,18 @@
   </div>
 
   <div class="card">
+    <h2>Handwriting reader</h2>
+    <p id="learned" class="muted"></p>
+    <div class="stack">
+      <label class="check"><input type="radio" name="reader" value="handwriting"> <span><b>Handwriting reader</b>: best for cursive and joined-up writing. Downloads about 80 MB once, then works offline. About 2 seconds per line.</span></label>
+      <label class="check"><input type="radio" name="reader" value="print"> <span><b>Quick reader</b>: small and fast, but only good for printing and very neat writing.</span></label>
+      <button class="btn ghost" id="btn-warm">Download the handwriting reader now</button>
+      <div class="note info reader-note" hidden></div>
+    </div>
+    <p class="muted small">Tip: use Wi-Fi for the download.</p>
+  </div>
+
+  <div class="card">
     <h2>Backup</h2>
     <p>Your pages are kept only on this phone. Save a backup now and then, and keep it somewhere safe such as iCloud Drive, Google Drive or email. You can also use a backup to move everything to a new phone.</p>
     <div class="stack">
@@ -199,7 +213,7 @@
       <li><b>Search.</b> Type words in the search box. Put words in quotes to find an exact phrase, like <i>"summer house"</i>. Use <b>Filters</b> to narrow by notebook, year or tag.</li>
       <li><b>PDFs.</b> Open a page and tap <b>Save as PDF</b>, or search and tap <b>Make a PDF of these</b> to get all matching pages in one file.</li>
     </ol>
-    <p class="muted">Handwriting reading is done on the phone with free software. It does well on neat print and struggles with joined-up cursive, so checking the text matters. Search also finds words that are one letter off, to help with small reading mistakes.</p>
+    <p class="muted">Handwriting is read on the phone with free software, one line at a time. It handles cursive far better than ordinary text scanners, but it still makes mistakes, especially on faded or cramped writing. Every word you fix is remembered and fixed automatically on later pages. Search also finds words that are one letter off.</p>
   </div>
   <p class="muted center small" id="version"></p>
 </section>
@@ -225,6 +239,7 @@
 
 <script src="vendor/tesseract.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
+<script src="reader.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

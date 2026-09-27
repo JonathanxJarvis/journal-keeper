@@ -8,7 +8,8 @@ stored on the phone.
 
 ## What it does
 - **Scan**: take a photo or pick several from the photo library. Trim the edges, turn the page, and choose a "clean scan" look that removes shadows.
-- **Read handwriting**: each page is read on the phone, even offline. The text can be corrected, typed, or dictated with the keyboard microphone.
+- **Read handwriting**: each page is split into lines and read on the phone by TrOCR, an open handwriting-recognition model trained on real handwritten lines, cursive included. It downloads once (about 80 MB, from Hugging Face) and then works offline. A small quick reader (Tesseract) is kept for printed text and as a fallback. The text can be corrected, typed, or dictated with the keyboard microphone.
+- **Learns from corrections**: every word fixed on a page is remembered and fixed automatically on later pages; words used often also correct near-misses.
 - **Organize**: title, date written, notebook and tags on each page, plus a "checked" mark.
 - **Search**: all words must match; "quoted phrases" match exactly; longer words also match when one letter is off, to forgive reading mistakes. Filter by notebook, year, tag, or pages still to check.
 - **PDF**: one page, the search results, or everything, as a single PDF (photo of the page followed by its typed text).
@@ -36,11 +37,10 @@ It must be served over `https://` (both hosts do this) for the phone to install 
 The first visit downloads about 11 MB (the handwriting reader). After that it works offline.
 
 ## Good to know
-- Free handwriting reading does well on neat printing and poorly on joined-up cursive. Plan on checking pages; tags and titles keep search useful even when the reading is rough.
+- Handwriting reading is much better than a plain text scanner but not perfect, especially on slanted, cramped or faded lines. Plan on checking pages; tags and titles keep search useful either way.
 - Pages live only on that phone. Save a backup regularly (☰ → Save a backup file) to iCloud Drive, Google Drive or email.
 - To try it on a computer: run `python3 -m http.server` in this folder and open http://localhost:8000.
 
 ## Files
-`index.html`, `styles.css`, `app.js` (the app), `sw.js` (offline support),
-`manifest.webmanifest` + `icons/` (Home Screen install), `vendor/` (Tesseract.js 5.1.1
-and jsPDF 2.5.2, both open source, Apache-2.0 and MIT), `lang/` (English reading data; named .wasm so every host serves it as a binary file).
+`index.html`, `styles.css`, `app.js` (the app), `reader.js` (line finding, learning), `htr-worker.js` (handwriting reader), `sw.js` (offline support),
+`manifest.webmanifest` + `icons/` (Home Screen install), `vendor/` (Tesseract.js 5.1.1, jsPDF 2.5.2 and transformers.js 3.8.1, open source under Apache-2.0 and MIT), `lang/` (English reading data; named .wasm so every host serves it as a binary file).
