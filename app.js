@@ -1,8 +1,10 @@
-/* Journal Keeper: scan handwritten journal pages, have Claude read them,
-   search them, and save them as PDFs. Pages are stored on this device. */
+/* Journal Keeper: scan handwritten journals, have Claude read them, and keep
+   every page in order by journal and by date. Pages are stored on this device.
+   This file holds the core (storage, scanning, reading, search, files);
+   library.js draws the screens and reader-view.js the page-turning viewer. */
 'use strict';
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -11,21 +13,23 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 /* =========================================================
    Storage (IndexedDB)
-   pages:  metadata + text + small thumbnail (fast to list)
-   images: full page image, keyed by page id
+   pages:    metadata + text + small thumbnail (fast to list)
+   images:   full page image, keyed by page id
+   journals: the notebooks pages belong to (name, colour, order)
    ========================================================= */
 const DB = (() => {
   let dbp;
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((resolve, reject) => {
-      const req = indexedDB.open('journal-keeper', 2);
+      const req = indexedDB.open('journal-keeper', 3);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains('pages')) db.createObjectStore('pages', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
         // line pictures from an earlier version; no longer used, kept so older data still opens
         if (!db.objectStoreNames.contains('lines')) db.createObjectStore('lines');
+        if (!db.objectStoreNames.contains('journals')) db.createObjectStore('journals', { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -48,6 +52,10 @@ const DB = (() => {
     allPages: () => tx(['pages'], 'readonly', (t) => req2p(t.objectStore('pages').getAll())),
     getPage: (id) => tx(['pages'], 'readonly', (t) => req2p(t.objectStore('pages').get(id))),
     putPage: (p) => tx(['pages'], 'readwrite', (t) => { t.objectStore('pages').put(p); }),
+    putPages: (ps) => tx(['pages'], 'readwrite', (t) => { for (const p of ps) t.objectStore('pages').put(p); }),
+    allJournals: () => tx(['journals'], 'readonly', (t) => req2p(t.objectStore('journals').getAll())),
+    putJournal: (j) => tx(['journals'], 'readwrite', (t) => { t.objectStore('journals').put(j); }),
+    deleteJournal: (id) => tx(['journals'], 'readwrite', (t) => { t.objectStore('journals').delete(id); }),
     getImage: (id) => tx(['images'], 'readonly', (t) => req2p(t.objectStore('images').get(id))),
     putPageWithImage: (p, img) => tx(['pages', 'images'], 'readwrite', (t) => {
       t.objectStore('pages').put(p);
@@ -58,9 +66,6 @@ const DB = (() => {
       t.objectStore('images').delete(id);
       t.objectStore('lines').delete(id);
     }),
-    getLines: (id) => tx(['lines'], 'readonly', (t) => req2p(t.objectStore('lines').get(id))),
-    putLines: (id, items) => tx(['lines'], 'readwrite', (t) => { t.objectStore('lines').put(items, id); }),
-    allLines: () => tx(['lines'], 'readonly', (t) => req2p(t.objectStore('lines').getAll())),
   };
 })();
 
@@ -69,12 +74,18 @@ const DB = (() => {
    ========================================================= */
 const state = {
   pages: [],               // all page records (no full images)
-  filters: { notebook: '', year: '', tags: new Set(), review: false, sort: 'written-asc' },
+  journals: [],            // [{ id, name, color, order, created }]
+  chrono: new Map(),       // page id -> place in time (see chrono.js)
+  scanJournal: '',         // journal new scans go into
+  filters: { journal: '', year: '', tags: new Set(), review: false, star: false, sort: 'time-asc' },
   query: '',
   results: [],
   currentId: null,
   thumbURLs: new Map(),
 };
+
+// Screens register here to hear about changes made in the background (reading, saving).
+const hooks = { pageChanged: () => {}, pagesChanged: () => {} };
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -104,11 +115,7 @@ function showView(name) {
   window.scrollTo(0, 0);
 }
 function fmtDate(iso) {
-  if (!iso) return '';
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y) return '';
-  const dt = new Date(y, (m || 1) - 1, d || 1);
-  return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return Chrono.format(iso);
 }
 function parseTags(s) {
   const seen = new Set();
@@ -282,7 +289,7 @@ async function startAdjust(files) {
 
 async function nextInQueue() {
   const file = adjust.queue.shift();
-  if (!file) { showView('list'); render(); return; }
+  if (!file) { showTab('scan'); return; }
   busy('Opening photo…');
   try {
     adjust.src = await loadImage(file);
@@ -379,7 +386,9 @@ async function saveAdjusted(src, turns, rect, look) {
     updated: now,
     title: '',
     dateWritten: '',
-    notebook: lastNotebook(),
+    journalId: state.scanJournal,
+    seq: nextSeq(state.scanJournal),
+    starred: false,
     tags: [],
     text: '',
     reviewed: false,
@@ -392,15 +401,10 @@ async function saveAdjusted(src, turns, rect, look) {
   await DB.putPageWithImage(page, image);
   state.pages.push(page);
   requestPersistentStorage();
+  recompute();
   OCR.enqueue(page.id);
+  hooks.pagesChanged();
   return page;
-}
-
-function lastNotebook() {
-  try { return localStorage.getItem('jk-last-notebook') || ''; } catch { return ''; }
-}
-function rememberNotebook(nb) {
-  try { localStorage.setItem('jk-last-notebook', nb || ''); } catch { /* not important */ }
 }
 
 let persistAsked = false;
@@ -428,7 +432,7 @@ const OCR = (() => {
   async function pause(msg) {
     for (const q of queue.splice(0)) {
       const w = state.pages.find((x) => x.id === q);
-      if (w) { w.ocr = { status: 'waiting', note: msg }; await DB.putPage(stored(w)).catch(() => {}); refreshItem(q); }
+      if (w) { w.ocr = { status: 'waiting', note: msg }; await DB.putPage(stored(w)).catch(() => {}); hooks.pageChanged(q); }
     }
     showReaderNote(msg, 8000);
   }
@@ -442,18 +446,20 @@ const OCR = (() => {
       if (!page) continue;
       page.ocr = { status: 'reading' };
       readProgress.set(id, 'Claude is reading this page…');
-      refreshItem(id);
+      hooks.pageChanged(id);
       try {
         const blob = await DB.getImage(id);
         let meta;
         try {
-          meta = await ClaudeReader.read(blob);
+          const before = pagesOf(page.journalId).filter((x) => x.seq < page.seq && Chrono.valid(x.dateWritten));
+          const prev = before.length ? before[before.length - 1].dateWritten : '';
+          meta = await ClaudeReader.read(blob, { journal: journalName(page.journalId), prevDate: prev ? Chrono.format(prev) : '' });
         } catch (e) {
           if (e.kind !== 'page') {
             readProgress.delete(id);
             page.ocr = { status: 'waiting', note: e.message };
             await DB.putPage(stored(page)).catch(() => {});
-            refreshItem(id);
+            hooks.pageChanged(id);
             await pause(e.message);
             break;
           }
@@ -468,7 +474,7 @@ const OCR = (() => {
         const untouched = !had || had === (fresh.readText || '').trim();
         fresh.text = untouched ? meta.text : had + '\n\n' + meta.text;
         if (meta.title && (!fresh.title || fresh.title === guessTitle(had))) fresh.title = meta.title;
-        if (meta.date && !fresh.dateWritten && meta.date.length === 10) fresh.dateWritten = meta.date;
+        if (meta.date && !fresh.dateWritten && Chrono.valid(meta.date)) fresh.dateWritten = meta.date;
         fresh.tags = [...new Set([...(fresh.tags || []), ...meta.tags])];
         if (!fresh.title) fresh.title = guessTitle(meta.text);
         fresh.readText = meta.text;
@@ -476,17 +482,18 @@ const OCR = (() => {
         fresh.updated = Date.now();
         await DB.putPage(fresh);
         Object.assign(page, fresh);
+        recompute();
       } catch (e) {
         console.error(e);
         readProgress.delete(id);
         page.ocr = { status: 'error', note: String(e && e.message || e) };
         await DB.putPage(stored(page)).catch(() => {});
       }
-      refreshItem(id);
+      hooks.pageChanged(id);
       if (state.currentId === id) fillPageForm(page);
     }
     running = false;
-    render();
+    hooks.pagesChanged();
   }
 
   // On start-up, pick up any pages that were waiting when the app was closed.
@@ -496,7 +503,7 @@ const OCR = (() => {
     }
   }
 
-  return { enqueue, resume, isBusy: () => running || queue.length > 0 };
+  return { enqueue, resume, isBusy: () => running || queue.length > 0, waiting: () => queue.length + (running ? 1 : 0) };
 })();
 
 function tidyText(t) {
@@ -513,11 +520,16 @@ function guessTitle(text) {
 
 /* =========================================================
    Search
-   - every word must appear (in the title, text, tags or notebook)
+   - every word must appear (in the title, text, tags or journal name)
    - "quoted phrases" must appear exactly
    - words of 5+ letters also match when one letter is off, to forgive
      small handwriting-reading mistakes
    ========================================================= */
+// The year a page belongs to: its own date, or the date before it in the journal
+function yearOf(p) {
+  const k = placeOf(p).key;
+  return k === '9999' ? '' : k.slice(0, 4);
+}
 function norm(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
@@ -552,7 +564,7 @@ function within1(a, b) {
 }
 function haystack(p) {
   if (!p._hay || p._hayAt !== p.updated) {
-    p._hay = norm([p.title, p.notebook, (p.tags || []).join(' '), p.text].join('\n'));
+    p._hay = norm([p.title, journalName(p.journalId), (p.tags || []).join(' '), p.text].join('\n'));
     p._words = p._hay.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
     p._hayAt = p.updated;
   }
@@ -573,8 +585,9 @@ function searchPages() {
   const f = state.filters;
   const out = [];
   for (const p of state.pages) {
-    if (f.notebook && (p.notebook || '') !== f.notebook) continue;
-    if (f.year && (p.dateWritten || '').slice(0, 4) !== f.year) continue;
+    if (f.journal && p.journalId !== f.journal) continue;
+    if (f.year && yearOf(p) !== f.year) continue;
+    if (f.star && !p.starred) continue;
     if (f.review && p.reviewed) continue;
     if (f.tags.size) {
       const tags = new Set((p.tags || []).map((t) => t.toLowerCase()));
@@ -601,13 +614,12 @@ function searchPages() {
     if (!ok) continue;
     out.push({ p, score, hits });
   }
-  const hasQuery = phrases.length || words.length;
-  const byWritten = (a, b) => (a.p.dateWritten || '9999').localeCompare(b.p.dateWritten || '9999') || a.p.created - b.p.created;
+  // Results always read in date order (or newest scans first), so a search reads like a story.
+  const rank = new Map(timelineOrder(out.map((r) => r.p)).map((p, i) => [p.id, i]));
   out.sort((a, b) => {
-    if (hasQuery && b.score !== a.score) return b.score - a.score;
-    if (f.sort === 'written-desc') return -byWritten(a, b);
     if (f.sort === 'scanned-desc') return b.p.created - a.p.created;
-    return byWritten(a, b);
+    const d = rank.get(a.p.id) - rank.get(b.p.id);
+    return f.sort === 'time-desc' ? -d : d;
   });
   return out;
 }
@@ -646,8 +658,88 @@ function highlight(s, hits) {
 }
 
 /* =========================================================
-   Notes list
+   Journals and order in time
    ========================================================= */
+const JOURNAL_COLORS = ['#8c2f2b', '#23413c', '#2d4a7a', '#b4532a', '#5b3f6e', '#6b5d1f', '#3c6e8f', '#7a4a2e', '#4d6b3a', '#444444'];
+
+function journalById(id) {
+  return state.journals.find((j) => j.id === id) || null;
+}
+function journalName(id) {
+  const j = journalById(id);
+  return j ? j.name : 'Unsorted';
+}
+function sortedJournals() {
+  return [...state.journals].sort((a, b) => a.order - b.order || a.created - b.created);
+}
+// A journal's pages in book order
+function pagesOf(jid) {
+  return state.pages.filter((p) => p.journalId === jid).sort((a, b) => a.seq - b.seq || a.created - b.created);
+}
+function nextSeq(jid) {
+  let max = 0;
+  for (const p of state.pages) if (p.journalId === jid && p.seq > max) max = p.seq;
+  return max + 1;
+}
+async function addJournal(name, color) {
+  const now = Date.now();
+  const order = state.journals.reduce((m, j) => Math.max(m, j.order), 0) + 1;
+  const j = { id: uid(), name: name.trim() || 'Journal', color: color || JOURNAL_COLORS[state.journals.length % JOURNAL_COLORS.length], order, created: now };
+  await DB.putJournal(j);
+  state.journals.push(j);
+  return j;
+}
+
+// Work out where every page sits in time (after any change to dates or order)
+function recompute() {
+  const m = new Map();
+  const ids = new Set(state.journals.map((j) => j.id));
+  for (const j of state.journals) for (const [k, v] of Chrono.annotate(pagesOf(j.id))) m.set(k, v);
+  const loose = state.pages.filter((p) => !ids.has(p.journalId)).sort((a, b) => a.created - b.created);
+  for (const [k, v] of Chrono.annotate(loose)) m.set(k, v);
+  state.chrono = m;
+}
+function placeOf(p) {
+  return state.chrono.get(p.id) || { kind: 'none', label: 'No date yet', short: 'no date', key: '9999' };
+}
+// Every page given, merged across journals into one line of time
+function timelineOrder(pages) {
+  const jOrder = new Map(sortedJournals().map((j, i) => [j.id, i]));
+  return [...pages].sort((a, b) => {
+    const ka = placeOf(a).key, kb = placeOf(b).key;
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    const ja = jOrder.has(a.journalId) ? jOrder.get(a.journalId) : 999;
+    const jb = jOrder.has(b.journalId) ? jOrder.get(b.journalId) : 999;
+    return ja - jb || a.seq - b.seq || a.created - b.created;
+  });
+}
+
+// Pages from before journals existed: put them in journals named after their old "notebook"
+async function migrate() {
+  const byName = new Map(state.journals.map((j) => [j.name.toLowerCase(), j]));
+  const ids = new Set(state.journals.map((j) => j.id));
+  const changed = [];
+  for (const p of [...state.pages].sort((a, b) => a.created - b.created)) {
+    if (p.journalId && ids.has(p.journalId) && typeof p.seq === 'number') continue;
+    if (!p.journalId || !ids.has(p.journalId)) {
+      const name = (p.notebook || '').trim() || 'Unsorted pages';
+      let j = byName.get(name.toLowerCase());
+      if (!j) { j = await addJournal(name); byName.set(name.toLowerCase(), j); ids.add(j.id); }
+      p.journalId = j.id;
+    }
+    p.seq = nextSeq(p.journalId);
+    if (typeof p.starred !== 'boolean') p.starred = false;
+    changed.push(stored(p));
+  }
+  if (changed.length) await DB.putPages(changed);
+}
+
+function stored(p) {
+  const rec = { ...p };
+  delete rec._hay; delete rec._words; delete rec._hayAt;
+  return rec;
+}
+
 function thumbURL(p) {
   if (!p.thumb) return '';
   let u = state.thumbURLs.get(p.id);
@@ -657,138 +749,6 @@ function thumbURL(p) {
     state.thumbURLs.set(p.id, u);
   }
   return u.url;
-}
-
-function itemHTML(r) {
-  const p = r.p;
-  const meta = [fmtDate(p.dateWritten), p.notebook].filter(Boolean).map(esc).join(' · ');
-  const badges = [];
-  if (p.ocr?.status === 'waiting') badges.push(`<span class="badge busy">${p.ocr.note ? 'Paused, see menu' : 'Waiting to read'}</span>`);
-  else if (p.ocr?.status === 'reading') badges.push(`<span class="badge busy">${esc(readProgress.get(p.id) || 'Reading handwriting…')}</span>`);
-  else if (p.ocr?.status === 'error') badges.push('<span class="badge warn">Could not read, tap to type it</span>');
-  else if (!p.reviewed) badges.push('<span class="badge warn">Needs checking</span>');
-  for (const t of (p.tags || []).slice(0, 4)) badges.push(`<span class="badge">${esc(t)}</span>`);
-  const title = p.title ? highlight(p.title, r.hits) : '<span class="muted">Untitled page</span>';
-  const snip = snippet(p, r.hits);
-  return `<li><button class="item" data-id="${esc(p.id)}">
-    <img src="${thumbURL(p)}" alt="" loading="lazy">
-    <span class="item-body">
-      <span class="item-title">${title}</span>
-      ${meta ? `<span class="item-meta">${meta}</span>` : ''}
-      ${snip ? `<span class="item-snip">${snip}</span>` : ''}
-      ${badges.length ? `<span class="badges">${badges.join('')}</span>` : ''}
-    </span>
-  </button></li>`;
-}
-
-function render() {
-  state.results = searchPages();
-  const list = $('#list');
-  list.innerHTML = state.results.map(itemHTML).join('');
-  const total = state.pages.length;
-  const n = state.results.length;
-  const filtering = state.query.trim() || state.filters.notebook || state.filters.year || state.filters.tags.size || state.filters.review;
-  $('#empty').hidden = total > 0;
-  $('#result-count').textContent = !total ? '' : filtering
-    ? `${n} of ${total} page${total === 1 ? '' : 's'} match`
-    : `${total} page${total === 1 ? '' : 's'}`;
-  $('#btn-pdf-results').hidden = !n;
-  $('#btn-pdf-results').textContent = filtering ? 'Make a PDF of these' : 'Make a PDF of all';
-  if (filtering && !n) {
-    list.innerHTML = '<li class="empty"><p class="empty-title">Nothing found</p><p>Try fewer words, or clear the filters.</p></li>';
-  }
-  renderFilterOptions();
-}
-
-function refreshItem(id) {
-  const btn = document.querySelector(`.item[data-id="${CSS.escape(id)}"]`);
-  const r = state.results.find((x) => x.p.id === id);
-  if (btn && r) btn.parentElement.outerHTML = itemHTML(r);
-}
-
-function renderFilterOptions() {
-  const f = state.filters;
-  const notebooks = [...new Set(state.pages.map((p) => p.notebook).filter(Boolean))].sort();
-  const years = [...new Set(state.pages.map((p) => (p.dateWritten || '').slice(0, 4)).filter(Boolean))].sort();
-  const tagCount = new Map();
-  for (const p of state.pages) for (const t of p.tags || []) {
-    const k = t.toLowerCase();
-    tagCount.set(k, (tagCount.get(k) || 0) + 1);
-  }
-  const fill = (sel, first, vals, cur) => {
-    sel.innerHTML = `<option value="">${first}</option>` + vals.map((v) => `<option${v === cur ? ' selected' : ''}>${esc(v)}</option>`).join('');
-  };
-  fill($('#f-notebook'), 'All notebooks', notebooks, f.notebook);
-  fill($('#f-year'), 'Any year', years, f.year);
-  $('#notebook-list').innerHTML = notebooks.map((n) => `<option value="${esc(n)}">`).join('');
-  const tags = [...tagCount.keys()].sort();
-  $('#f-tags').innerHTML = tags.length
-    ? tags.map((t) => `<button class="chip${f.tags.has(t) ? ' on' : ''}" data-tag="${esc(t)}" aria-pressed="${f.tags.has(t)}">${esc(t)} (${tagCount.get(t)})</button>`).join('')
-    : '<span class="muted small">Tags you add to pages will show up here.</span>';
-}
-
-/* =========================================================
-   Page detail
-   ========================================================= */
-let pageImgURL = null;
-async function openPage(id) {
-  const p = state.pages.find((x) => x.id === id);
-  if (!p) return;
-  state.currentId = id;
-  $('#pg-confirm').hidden = true;
-  fillPageForm(p);
-  showView('page');
-  const img = await DB.getImage(id);
-  if (pageImgURL) URL.revokeObjectURL(pageImgURL);
-  pageImgURL = img ? URL.createObjectURL(img) : '';
-  $('#pg-img').src = pageImgURL || thumbURL(p);
-}
-
-function fillPageForm(p) {
-  const note = $('#pg-ocr-note');
-  note.className = 'note';
-  if (p.ocr?.status === 'waiting' || p.ocr?.status === 'reading') {
-    note.className = 'note info';
-    note.textContent = p.ocr?.status === 'waiting' && p.ocr.note
-      ? p.ocr.note
-      : 'Claude is reading this page. The words will appear below in a moment. You can fill in the other details now.';
-    note.hidden = false;
-  } else if (p.ocr?.status === 'error') {
-    note.textContent = `${p.ocr.note || 'This page could not be read.'} You can type or dictate the words below, or tap "Read this page again".`;
-    note.hidden = false;
-  } else if (!p.reviewed && p.ocr?.note) {
-    note.textContent = p.ocr.note;
-    note.hidden = false;
-  } else {
-    note.hidden = true;
-  }
-  $('#pg-text').value = p.text || '';
-  $('#pg-title').value = p.title || '';
-  $('#pg-date').value = p.dateWritten || '';
-  $('#pg-notebook').value = p.notebook || '';
-  $('#pg-tags').value = (p.tags || []).join(', ');
-  $('#pg-reviewed').checked = !!p.reviewed;
-}
-
-function stored(p) {
-  const rec = { ...p };
-  delete rec._hay; delete rec._words; delete rec._hayAt;
-  return rec;
-}
-
-async function savePage({ quiet = false } = {}) {
-  const p = state.pages.find((x) => x.id === state.currentId);
-  if (!p) return;
-  p.title = $('#pg-title').value.trim();
-  p.dateWritten = $('#pg-date').value;
-  p.notebook = $('#pg-notebook').value.trim();
-  p.tags = parseTags($('#pg-tags').value);
-  p.text = $('#pg-text').value;
-  p.reviewed = $('#pg-reviewed').checked;
-  p.updated = Date.now();
-  rememberNotebook(p.notebook);
-  await DB.putPage(stored(p));
-  if (!quiet) toast('Saved');
 }
 
 /* =========================================================
@@ -832,7 +792,7 @@ async function buildPDF(pages, { includeText = true } = {}) {
       for (const line of doc.splitTextToSize(pdfSafe(p.title || 'Untitled page'), W - 2 * M)) {
         doc.text(line, M, y); y += 22;
       }
-      const meta = [fmtDate(p.dateWritten), p.notebook, (p.tags || []).join(', ')].filter(Boolean).join('   |   ');
+      const meta = [placeOf(p).label, `${journalName(p.journalId)}, page ${p.seq}`, (p.tags || []).join(', ')].filter(Boolean).join('   |   ');
       if (meta) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90);
         for (const line of doc.splitTextToSize(pdfSafe(meta), W - 2 * M)) { doc.text(line, M, y); y += 14; }
@@ -869,14 +829,15 @@ async function exportPDF(pages, name) {
 async function makeBackup() {
   busy('Preparing backup…');
   try {
-    const parts = [`{"app":"journal-keeper","version":1,"exported":${JSON.stringify(new Date().toISOString())},"pages":[`];
+    const parts = [`{"app":"journal-keeper","version":2,"exported":${JSON.stringify(new Date().toISOString())},"journals":${JSON.stringify(state.journals)},"pages":[`];
     for (let i = 0; i < state.pages.length; i++) {
       const p = state.pages[i];
       busy(`Preparing backup… ${i + 1} of ${state.pages.length}`);
       const img = await DB.getImage(p.id);
       const rec = {
         id: p.id, created: p.created, updated: p.updated, title: p.title, dateWritten: p.dateWritten,
-        notebook: p.notebook, tags: p.tags, text: p.text, reviewed: p.reviewed, ocr: p.ocr, w: p.w, h: p.h,
+        journalId: p.journalId, seq: p.seq, starred: !!p.starred,
+        tags: p.tags, text: p.text, readText: p.readText, reviewed: p.reviewed, ocr: p.ocr, w: p.w, h: p.h,
         image: img ? await blobToDataURL(img) : null,
         thumb: p.thumb ? await blobToDataURL(p.thumb) : null,
       };
@@ -899,25 +860,35 @@ async function restoreBackup(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'journal-keeper' || !Array.isArray(data.pages)) throw new Error('not a backup');
+    for (const j of data.journals || []) {
+      const old = journalById(j.id);
+      if (old) continue;
+      const rec = { id: j.id, name: j.name || 'Journal', color: j.color || JOURNAL_COLORS[0], order: j.order || state.journals.length + 1, created: j.created || Date.now() };
+      await DB.putJournal(rec);
+      state.journals.push(rec);
+    }
     const have = new Map(state.pages.map((p) => [p.id, p]));
     let added = 0, updated = 0;
     for (let i = 0; i < data.pages.length; i++) {
       busy(`Restoring… ${i + 1} of ${data.pages.length}`);
       const r = data.pages[i];
       const old = have.get(r.id);
-      if (old && old.updated >= r.updated) continue; // this phone has the newer copy
+      if (old && old.updated >= r.updated) continue; // this device has the newer copy
       const image = r.image ? await dataURLToBlob(r.image) : null;
       const thumb = r.thumb ? await dataURLToBlob(r.thumb) : null;
       const page = {
         id: r.id, created: r.created, updated: r.updated, title: r.title || '', dateWritten: r.dateWritten || '',
-        notebook: r.notebook || '', tags: r.tags || [], text: r.text || '', reviewed: !!r.reviewed,
+        journalId: r.journalId || '', seq: typeof r.seq === 'number' ? r.seq : undefined, starred: !!r.starred, notebook: r.notebook || '',
+        tags: r.tags || [], text: r.text || '', readText: r.readText || '', reviewed: !!r.reviewed,
         ocr: r.ocr || { status: 'done' }, w: r.w, h: r.h, thumb,
       };
       if (image) await DB.putPageWithImage(page, image); else await DB.putPage(page);
       if (old) { Object.assign(old, page); old._hayAt = null; updated++; } else { state.pages.push(page); added++; }
     }
+    await migrate();   // older backups: pages without a journal
+    recompute();
     busy(false);
-    render(); renderStats();
+    hooks.pagesChanged();
     toast(`Restored: ${added} new page${added === 1 ? '' : 's'}${updated ? `, ${updated} updated` : ''}.`, 4000);
     requestPersistentStorage();
   } catch (e) {
@@ -927,36 +898,36 @@ async function restoreBackup(file) {
   }
 }
 
-async function exportAllText() {
-  const pages = searchPagesAll();
-  const out = pages.map((p) => {
-    const head = [p.title || 'Untitled page', [fmtDate(p.dateWritten), p.notebook].filter(Boolean).join(' · '),
+// All typed text in date order, with where each page comes from: the raw material for the book
+async function exportText(pages, filename) {
+  let lastYear = '';
+  const out = [];
+  for (const p of timelineOrder(pages)) {
+    const y = yearOf(p);
+    if (y && y !== lastYear) { out.push(`\n\n==================== ${y} ====================\n`); lastYear = y; }
+    const head = [p.title || 'Untitled page', `${placeOf(p).label} · ${journalName(p.journalId)}, page ${p.seq}`,
       (p.tags || []).length ? 'Tags: ' + p.tags.join(', ') : ''].filter(Boolean).join('\n');
-    return head + '\n\n' + (p.text || '').trim();
-  }).join('\n\n\n* * *\n\n\n');
-  const blob = new Blob([out], { type: 'text/plain' });
-  await deliverFile(blob, 'Journal Keeper - all text.txt');
-}
-
-function searchPagesAll() {
-  return [...state.pages].sort((a, b) => (a.dateWritten || '9999').localeCompare(b.dateWritten || '9999') || a.created - b.created);
+    out.push(head + '\n\n' + (p.text || '').trim() + '\n\n* * *\n');
+  }
+  await deliverFile(new Blob([out.join('\n')], { type: 'text/plain' }), filename);
 }
 
 async function renderStats() {
   const n = state.pages.length;
   const checked = state.pages.filter((p) => p.reviewed).length;
+  const starred = state.pages.filter((p) => p.starred).length;
   let space = '';
   try {
-    if (navigator.storage?.estimate) {
+    if (navigator.storage && navigator.storage.estimate) {
       const { usage } = await navigator.storage.estimate();
-      if (usage) space = ` Using about ${(usage / 1048576).toFixed(0)} MB on this phone.`;
+      if (usage) space = ` Using about ${(usage / 1048576).toFixed(0)} MB on this device.`;
     }
   } catch { /* optional */ }
-  $('#stats').textContent = `${n} page${n === 1 ? '' : 's'} saved, ${checked} checked.${space}`;
+  $('#stats').textContent = `${n} page${n === 1 ? '' : 's'} in ${state.journals.length} journal${state.journals.length === 1 ? '' : 's'}, ${checked} checked, ${starred} saved for the book.${space}`;
   $('#btn-pdf-all').disabled = !n;
   $('#btn-text-all').disabled = !n;
+  $('#btn-text-star').disabled = !starred;
   $('#btn-backup').disabled = !n;
-
 }
 
 let readerNoteTimer;
@@ -983,234 +954,3 @@ async function samplePhoto() {
   const blob = await canvasToBlob(c, 'image/jpeg', 0.9);
   return new File([blob], 'sample-page.jpg', { type: 'image/jpeg' });
 }
-
-/* =========================================================
-   Wiring
-   ========================================================= */
-function wire() {
-  // Scan
-  $('#btn-scan').onclick = () => $('#in-camera').click();
-  $('#btn-pick').onclick = () => $('#in-photos').click();
-  for (const id of ['#in-camera', '#in-photos']) {
-    $(id).addEventListener('change', (e) => {
-      const files = e.target.files;
-      if (files && files.length) startAdjust(files);
-      e.target.value = '';
-    });
-  }
-
-  $('#btn-sample').onclick = async () => startAdjust([await samplePhoto()]);
-
-  // Adjust
-  setupCropHandles();
-  $('#adj-rotate').onclick = () => {
-    adjust.turns = (adjust.turns + 1) % 4;
-    const r = adjust.rect; // turn the crop box with the page
-    adjust.rect = { x0: 1 - r.y1, y0: r.x0, x1: 1 - r.y0, y1: r.x1 };
-    drawAdjust();
-  };
-  for (const b of $$('.seg-btn')) {
-    b.onclick = () => {
-      adjust.look = b.dataset.look;
-      for (const x of $$('.seg-btn')) x.classList.toggle('on', x === b);
-      drawAdjust();
-    };
-  }
-  $('#adj-save').onclick = async () => {
-    busy('Saving page…');
-    try {
-      await saveAdjusted(adjust.src, adjust.turns, adjust.rect, adjust.look);
-      busy(false);
-      toast(adjust.queue.length ? 'Saved. Next photo…' : 'Saved. Reading the handwriting now.');
-      if (!adjust.queue.length) { showView('list'); render(); } else await nextInQueue();
-    } catch (e) {
-      console.error(e);
-      busy(false);
-      toast('The page could not be saved. The phone may be out of space.', 5000);
-    }
-  };
-  $('#adj-save-rest').onclick = async () => {
-    try {
-      await saveAdjusted(adjust.src, adjust.turns, adjust.rect, adjust.look);
-      const rest = adjust.queue.splice(0);
-      for (let i = 0; i < rest.length; i++) {
-        busy(`Saving pages… ${i + 2} of ${rest.length + 1}`);
-        const src = await loadImage(rest[i]);
-        await saveAdjusted(src, 0, { x0: 0, y0: 0, x1: 1, y1: 1 }, adjust.look);
-      }
-      busy(false);
-      toast(`Saved ${rest.length + 1} pages. Reading the handwriting now.`);
-    } catch (e) {
-      console.error(e);
-      busy(false);
-      toast('Some pages could not be saved.', 4000);
-    }
-    showView('list'); render();
-  };
-  $('#adj-cancel').onclick = () => { adjust.queue = []; showView('list'); render(); };
-  window.addEventListener('resize', () => { if (!$('#view-adjust').hidden && adjust.src) drawAdjust(); });
-
-  // List
-  let qTimer;
-  $('#q').addEventListener('input', (e) => {
-    clearTimeout(qTimer);
-    qTimer = setTimeout(() => { state.query = e.target.value; render(); }, 150);
-  });
-  $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
-  $('#list').addEventListener('click', (e) => {
-    const b = e.target.closest('.item');
-    if (b) openPage(b.dataset.id);
-  });
-  $('#btn-filters').onclick = () => {
-    const f = $('#filters');
-    f.hidden = !f.hidden;
-    $('#btn-filters').setAttribute('aria-expanded', String(!f.hidden));
-  };
-  $('#f-notebook').onchange = (e) => { state.filters.notebook = e.target.value; render(); };
-  $('#f-year').onchange = (e) => { state.filters.year = e.target.value; render(); };
-  $('#f-sort').onchange = (e) => { state.filters.sort = e.target.value; render(); };
-  $('#f-review').onchange = (e) => { state.filters.review = e.target.checked; render(); };
-  $('#f-tags').addEventListener('click', (e) => {
-    const c = e.target.closest('.chip');
-    if (!c) return;
-    const t = c.dataset.tag;
-    if (state.filters.tags.has(t)) state.filters.tags.delete(t); else state.filters.tags.add(t);
-    render();
-  });
-  $('#btn-clear-filters').onclick = () => {
-    Object.assign(state.filters, { notebook: '', year: '', review: false });
-    state.filters.tags.clear();
-    $('#f-review').checked = false;
-    render();
-  };
-  $('#btn-pdf-results').onclick = () => {
-    const name = state.query.trim() ? `Journal - ${state.query.replace(/"/g, '')}` : 'Journal - all pages';
-    exportPDF(state.results.map((r) => r.p), name);
-  };
-
-  // Page
-  $('#pg-back').onclick = async () => {
-    await savePage({ quiet: true });
-    state.currentId = null;
-    showView('list'); render();
-  };
-  $('#pg-save').onclick = async () => {
-    await savePage();
-    state.currentId = null;
-    showView('list'); render();
-  };
-  $('#pg-pdf').onclick = async () => {
-    await savePage({ quiet: true });
-    const p = state.pages.find((x) => x.id === state.currentId);
-    exportPDF([p], `Journal - ${p.title || fmtDate(p.dateWritten) || 'page'}`);
-  };
-  $('#pg-reocr').onclick = async () => {
-    const p = state.pages.find((x) => x.id === state.currentId);
-    if (!p) return;
-    await savePage({ quiet: true });
-    // Replace the text only if the person hasn't marked it as checked
-    if (!p.reviewed) { p.text = ''; $('#pg-text').value = ''; p.readText = ''; }
-    p.ocr = { status: 'waiting' };
-    await DB.putPage(stored(p));
-    fillPageForm(p);
-    OCR.enqueue(p.id);
-    toast(p.reviewed ? 'Reading again. New words will be added below yours.' : 'Claude is reading the page again…');
-  };
-  $('#pg-delete').onclick = () => { $('#pg-confirm').hidden = false; $('#pg-confirm').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
-  $('#pg-delete-no').onclick = () => { $('#pg-confirm').hidden = true; };
-  $('#pg-delete-yes').onclick = async () => {
-    const id = state.currentId;
-    await DB.deletePage(id);
-    state.pages = state.pages.filter((p) => p.id !== id);
-    state.currentId = null;
-    toast('Page deleted');
-    showView('list'); render();
-  };
-  $('#pg-zoom').onclick = () => { $('#zoom-img').src = $('#pg-img').src; $('#zoom').hidden = false; };
-  $('#pg-img').onclick = () => $('#pg-zoom').click();
-  $('#zoom-close').onclick = () => { $('#zoom').hidden = true; };
-
-  // Claude reader settings
-  const claudeNote = (msg) => { const n = $('#claude-note'); n.textContent = msg; n.hidden = !msg; };
-  const showSpent = () => {
-    const s = ClaudeReader.spent();
-    $('#claude-spent').textContent = s.pages
-      ? `Read by Claude on this phone so far: ${s.pages} page${s.pages === 1 ? '' : 's'}, about $${s.usd.toFixed(2)} (average ${(100 * s.usd / s.pages).toFixed(1)} cents a page).`
-      : 'No pages read by Claude yet.';
-  };
-  $('#claude-key').value = ClaudeReader.key();
-  $('#claude-model').value = ClaudeReader.model();
-  $('#claude-hint').value = ClaudeReader.hint();
-  $('#claude-model').onchange = (e) => ClaudeReader.setModel(e.target.value);
-  $('#claude-hint').onchange = (e) => ClaudeReader.setHint(e.target.value);
-  showSpent();
-  $('#btn-claude-save').onclick = async () => {
-    ClaudeReader.setKey($('#claude-key').value);
-    ClaudeReader.setHint($('#claude-hint').value);
-    claudeNote('Checking the key…');
-    try {
-      await ClaudeReader.test();
-      claudeNote('The key works. Every page you scan will now be read by Claude.');
-      OCR.resume();   // read any pages that were waiting for the key
-    } catch (e) {
-      claudeNote(e.message);
-    }
-  };
-  $('#btn-claude-all').onclick = async () => {
-    if (!ClaudeReader.ready()) { claudeNote('Add and test your Claude API key first.'); return; }
-    const todo = state.pages.filter((p) => !p.reviewed && !(p.ocr && p.ocr.engine === 'claude' && p.ocr.status === 'done'));
-    if (!todo.length) { claudeNote('Every page has already been read by Claude or checked by hand.'); return; }
-    const m = ClaudeReader.MODELS[ClaudeReader.model()];
-    const est = todo.length * (m.inPerM * 2600 + m.outPerM * 900) / 1e6;
-    claudeNote(`Reading ${todo.length} page${todo.length === 1 ? '' : 's'}, roughly $${est.toFixed(2)}. Keep the app open and on Wi-Fi; you can watch the list fill in.`);
-    for (const p of todo) {
-      p.ocr = { status: 'waiting' };
-      await DB.putPage(stored(p)).catch(() => {});
-      OCR.enqueue(p.id);
-    }
-  };
-
-  // Menu
-  $('#btn-menu').onclick = () => { renderStats(); showSpent(); showView('menu'); };
-  $('#menu-back').onclick = () => { showView('list'); render(); };
-  $('#btn-pdf-all').onclick = () => exportPDF(searchPagesAll(), 'Journal - all pages');
-  $('#btn-text-all').onclick = () => exportAllText();
-  $('#btn-backup').onclick = () => makeBackup();
-  $('#btn-restore').onclick = () => $('#in-restore').click();
-  $('#in-restore').addEventListener('change', (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (f) restoreBackup(f);
-    e.target.value = '';
-  });
-  $('#version').textContent = `Journal Keeper ${APP_VERSION}. Your pages are kept on this phone; each photo is sent only to Claude to be read.`;
-
-  // Save typing if the app is closed or switched away from a page
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && state.currentId) savePage({ quiet: true });
-  });
-}
-
-async function init() {
-  wire();
-  try {
-    state.pages = await DB.allPages();
-  } catch (e) {
-    console.error(e);
-    toast('This browser is blocking storage. Open Journal Keeper from the Home Screen, not a private window.', 8000);
-  }
-  render();
-  OCR.resume();
-  // Pages that waited for internet carry on as soon as it is back
-  window.addEventListener('online', () => OCR.resume());
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    // Always check for a newer version, and reload once when it takes over, so updates show straight away.
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((r) => r.update()).catch(() => {});
-    const hadController = !!navigator.serviceWorker.controller;
-    let reloaded = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadController && !reloaded && !OCR.isBusy()) { reloaded = true; location.reload(); }
-    });
-  }
-}
-
-init();

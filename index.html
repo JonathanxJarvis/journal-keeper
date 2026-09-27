@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Journal Keeper</title>
-<meta name="description" content="Scan handwritten journal pages, turn them into text and PDFs, and search them.">
+<meta name="description" content="Scan handwritten journals, have them typed up, and read and search them in date order.">
 <meta name="theme-color" content="#f5efe4" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#17130f" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
@@ -18,70 +18,176 @@
 </head>
 <body>
 
-<!-- ============ NOTES LIST (home) ============ -->
-<section id="view-list" class="view">
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H19v-5"/><path d="M8 7.5h7M8 11h5"/></svg></span>
-      <div><h1>Journal Keeper</h1><span class="brand-sub">every page, kept &amp; findable</span></div>
-    </div>
-    <button class="icon-btn" id="btn-menu" aria-label="Settings and help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-  </header>
+<!-- Icons, drawn once and reused -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-book" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H19v-5"/><path d="M8 7.5h7M8 11h5"/></g></symbol>
+    <symbol id="i-shelf" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16M9 4v16M14 5l4 15"/><path d="M3 20h18"/></g></symbol>
+    <symbol id="i-time" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><circle cx="7" cy="12" r="2"/><circle cx="14" cy="12" r="2"/><path d="M7 6v2M14 16v2M19 6v4"/></g></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></g></symbol>
+    <symbol id="i-photos" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/><path d="m3 16 4-4 4 4 2-2 4 4"/></g></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></g></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-star-o" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></g></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 6h14M5 10h14M5 14h10M5 18h7"/></g></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></g></symbol>
+    <symbol id="i-spread" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 6c-2-1.5-5-2-8-1.5v14c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-14c-3-.5-6 0-8 1.5z"/><path d="M12 6v14"/></g></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></g></symbol>
+  </defs>
+</svg>
 
+<!-- ============ TOP BAR + SECTIONS ============ -->
+<header class="appbar">
+  <div class="brand">
+    <span class="brand-mark"><svg><use href="#i-book"/></svg></span>
+    <div><span class="brand-name">Journal Keeper</span><span class="brand-sub">every page, kept &amp; findable</span></div>
+  </div>
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab" data-tab="library"><svg><use href="#i-shelf"/></svg><span>Journals</span></button>
+    <button class="tab" data-tab="timeline"><svg><use href="#i-time"/></svg><span>Timeline</span></button>
+    <button class="tab" data-tab="scan"><svg><use href="#i-cam"/></svg><span>Scan</span></button>
+    <button class="tab" data-tab="settings"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
+  </nav>
+</header>
+
+<main>
+<div class="note info reader-note wrap" hidden></div>
+
+<!-- ============ JOURNALS (library) ============ -->
+<section id="view-library" class="view wide">
   <div class="search-wrap">
-    <label for="q" class="sr-only">Search your notes</label>
-    <input id="q" type="search" placeholder="Search words or names" autocomplete="off" enterkeyhint="search">
+    <label for="q" class="sr-only">Search every journal</label>
+    <input id="q" type="search" placeholder="Search all journals" autocomplete="off" enterkeyhint="search">
     <button class="link-btn" id="btn-filters" aria-expanded="false">Filters</button>
   </div>
 
   <div id="filters" class="filters" hidden>
     <div class="field">
-      <label for="f-notebook">Notebook</label>
-      <select id="f-notebook"><option value="">All notebooks</option></select>
+      <label for="f-journal">Journal</label>
+      <select id="f-journal"><option value="">All journals</option></select>
     </div>
     <div class="field">
-      <label for="f-year">Year written</label>
+      <label for="f-year">Year</label>
       <select id="f-year"><option value="">Any year</option></select>
     </div>
     <div class="field">
       <label for="f-sort">Order</label>
       <select id="f-sort">
-        <option value="written-asc">Oldest writing first</option>
-        <option value="written-desc">Newest writing first</option>
+        <option value="time-asc">Oldest first</option>
+        <option value="time-desc">Newest first</option>
         <option value="scanned-desc">Most recently scanned</option>
       </select>
     </div>
+    <label class="check"><input type="checkbox" id="f-star"> Only pages saved for the book</label>
     <label class="check"><input type="checkbox" id="f-review"> Only pages that still need checking</label>
-    <div>
+    <div class="span-all">
       <div class="label-sm">Tags</div>
       <div id="f-tags" class="chips"></div>
     </div>
     <button class="btn ghost small" id="btn-clear-filters">Clear filters</button>
   </div>
 
-  <div class="note info reader-note" hidden></div>
-
-  <div class="result-bar">
-    <span id="result-count"></span>
-    <button class="link-btn" id="btn-pdf-results" hidden>Make a PDF of these</button>
+  <!-- Search results (shown while searching or filtering) -->
+  <div id="results-wrap" hidden>
+    <div class="result-bar">
+      <span id="result-count"></span>
+      <button class="link-btn" id="btn-pdf-results">Make a PDF of these</button>
+    </div>
+    <ul id="list" class="list"></ul>
   </div>
 
-  <ul id="list" class="list"></ul>
+  <!-- Shelf of journals -->
+  <div id="shelf-wrap">
+    <div class="section-head">
+      <h1 class="h-display">Your journals</h1>
+      <button class="btn ghost small" id="btn-new-journal"><svg><use href="#i-plus"/></svg>New journal</button>
+    </div>
+    <ul id="shelf" class="shelf"></ul>
+    <div id="empty" class="empty" hidden>
+      <p class="empty-title">Your journals start here</p>
+      <p class="empty-hand">three easy steps</p>
+      <ol class="steps">
+        <li><span><b>Name the journals</b> with <b>New journal</b>, one for each notebook.</span></li>
+        <li><span><b>Scan</b> the pages of a journal in order, in the <b>Scan</b> section.</span></li>
+        <li><span><b>Read</b> them side by side here, or see everything in date order in <b>Timeline</b>.</span></li>
+      </ol>
+      <button class="btn ghost" id="btn-sample">Try it with a sample page</button>
+    </div>
+  </div>
+</section>
 
-  <div id="empty" class="empty" hidden>
-    <p class="empty-title">Your journal starts here</p>
-    <p class="empty-hand">three easy steps</p>
-    <ol class="steps">
-      <li><span><b>Photograph</b> a page with <b>Scan a page</b>, or pick many at once with <b>Choose photos</b>.</span></li>
-      <li><span><b>Wait a moment</b> while the handwriting is turned into typed words.</span></li>
-      <li><span><b>Search</b> any word or name at the top to find every page it is on.</span></li>
-    </ol>
-    <button class="btn ghost" id="btn-sample">Try it with a sample page</button>
+<!-- ============ ONE JOURNAL ============ -->
+<section id="view-journal" class="view wide" hidden>
+  <div class="journal-head">
+    <button class="icon-btn" id="jr-back" aria-label="Back to journals"><svg><use href="#i-back"/></svg></button>
+    <span class="swatch" id="jr-swatch"></span>
+    <div class="jr-title">
+      <h1 class="h-display" id="jr-name">Journal</h1>
+      <p class="muted" id="jr-meta"></p>
+    </div>
+    <div class="seg" role="group" aria-label="How to show the pages">
+      <button class="seg-btn on" data-mode="read"><svg><use href="#i-spread"/></svg>Read</button>
+      <button class="seg-btn" data-mode="arrange"><svg><use href="#i-grid"/></svg>Arrange</button>
+    </div>
+    <button class="icon-btn" id="jr-edit" aria-label="Rename or recolour this journal"><svg><use href="#i-edit"/></svg></button>
   </div>
 
-  <div class="bottom-bar">
-    <button class="btn primary big" id="btn-scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>Scan a page</button>
-    <button class="btn ghost big" id="btn-pick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/><path d="m3 16 4-4 4 4 2-2 4 4"/></svg>Choose photos</button>
+  <div id="jr-reader" class="reader-host"></div>
+
+  <div id="jr-arrange" hidden>
+    <p class="hint">Drag pages to put them in the right order. Tick pages to move them to another journal.</p>
+    <div class="arrange-bar">
+      <span id="ar-count" class="muted">None ticked</span>
+      <select id="ar-target" aria-label="Move ticked pages to"></select>
+      <button class="btn ghost small" id="ar-move" disabled>Move ticked pages</button>
+      <button class="btn ghost small" id="jr-pdf">PDF of this journal</button>
+    </div>
+    <ol id="arrange" class="arrange"></ol>
+  </div>
+</section>
+
+<!-- ============ TIMELINE (every journal, in date order) ============ -->
+<section id="view-timeline" class="view wide" hidden>
+  <div class="section-head">
+    <h1 class="h-display">Timeline</h1>
+    <p class="muted">Every page of every journal in date order. Undated pages sit between the dated pages around them.</p>
+  </div>
+  <div class="chips" id="tl-journals" aria-label="Journals to include"></div>
+  <div id="tl-reader" class="reader-host"></div>
+</section>
+
+<!-- ============ SCAN ============ -->
+<section id="view-scan" class="view" hidden>
+  <div class="section-head">
+    <h1 class="h-display">Scan pages</h1>
+  </div>
+  <div class="card">
+    <p class="kicker">step 1</p>
+    <h2>Which journal are these pages from?</h2>
+    <div id="scan-journals" class="journal-picks"></div>
+    <button class="link-btn" id="scan-new-journal">+ Add a new journal</button>
+  </div>
+  <div class="card">
+    <p class="kicker">step 2</p>
+    <h2>Add the pages, in order</h2>
+    <p class="muted" id="scan-where"></p>
+    <div class="scan-buttons">
+      <button class="btn primary big" id="btn-scan"><svg><use href="#i-cam"/></svg>Take a photo</button>
+      <button class="btn ghost big" id="btn-pick"><svg><use href="#i-photos"/></svg>Choose photos</button>
+    </div>
+    <div class="dropzone" id="dropzone">Or drag page photos here from your computer</div>
+    <p class="muted small">Photos are added in the order of their file names (IMG_0001, IMG_0002…), which is the order they were taken.</p>
+  </div>
+  <div class="card">
+    <p class="kicker">step 3</p>
+    <h2>Claude types them up</h2>
+    <p id="scan-status" class="muted"></p>
+    <ul id="scan-recent" class="strip"></ul>
   </div>
   <input type="file" id="in-camera" accept="image/*" capture="environment" hidden>
   <input type="file" id="in-photos" accept="image/*" multiple hidden>
@@ -90,7 +196,7 @@
 <!-- ============ ADJUST SCAN ============ -->
 <section id="view-adjust" class="view" hidden>
   <header class="topbar">
-    <button class="icon-btn" id="adj-cancel" aria-label="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="icon-btn" id="adj-cancel" aria-label="Cancel"><svg><use href="#i-x"/></svg></button>
     <h1 id="adj-title">Adjust the page</h1>
     <span class="spacer"></span>
   </header>
@@ -115,70 +221,73 @@
   </div>
 </section>
 
-<!-- ============ PAGE DETAIL ============ -->
-<section id="view-page" class="view" hidden>
+<!-- ============ ONE PAGE (edit details) ============ -->
+<section id="view-page" class="view wide" hidden>
   <header class="topbar">
-    <button class="icon-btn" id="pg-back" aria-label="Back to all pages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
-    <h1>Page</h1>
-    <span class="spacer"></span>
+    <button class="icon-btn" id="pg-back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+    <h1 id="pg-heading">Page</h1>
+    <button class="icon-btn" id="pg-prev" aria-label="Previous page"><svg><use href="#i-back"/></svg></button>
+    <button class="icon-btn" id="pg-next" aria-label="Next page"><svg><use href="#i-next"/></svg></button>
   </header>
 
-  <figure class="page-img">
-    <img id="pg-img" alt="Scanned journal page">
-    <figcaption><button class="link-btn" id="pg-zoom">Show bigger</button></figcaption>
-  </figure>
+  <div class="page-layout">
+    <figure class="page-img">
+      <img id="pg-img" alt="Scanned journal page">
+      <figcaption><button class="link-btn" id="pg-zoom">Show bigger</button></figcaption>
+    </figure>
 
-  <div id="pg-ocr-note" class="note" hidden></div>
-  <div class="form">
-    <div class="field">
-      <label for="pg-title">Title</label>
-      <input id="pg-title" type="text" placeholder="e.g. Trip to Lisbon">
-    </div>
-    <div class="row2">
-      <div class="field">
-        <label for="pg-date">Date written</label>
-        <input id="pg-date" type="date">
+    <div class="page-side">
+      <div id="pg-ocr-note" class="note" hidden></div>
+      <div class="form">
+        <div class="row2">
+          <div class="field">
+            <label for="pg-journal">Journal</label>
+            <select id="pg-journal"></select>
+          </div>
+          <div class="field">
+            <label for="pg-date">Date written</label>
+            <input id="pg-date" type="text" placeholder="e.g. 12 June 1984, June 1984 or 1984" autocomplete="off">
+            <p class="tip" id="pg-date-hint"></p>
+          </div>
+        </div>
+        <div class="field">
+          <label for="pg-title">Title</label>
+          <input id="pg-title" type="text" placeholder="e.g. Trip to Lisbon">
+        </div>
+        <div class="field">
+          <label for="pg-tags">Tags <span class="muted">(separate with commas)</span></label>
+          <input id="pg-tags" type="text" placeholder="e.g. family, army, chapter 3" autocapitalize="none">
+        </div>
+        <div class="field">
+          <label for="pg-text">Typed text of the page</label>
+          <textarea id="pg-text" rows="14" placeholder="The words from this page appear here after reading. You can fix or type them."></textarea>
+        </div>
+        <label class="check"><input type="checkbox" id="pg-star"> Save this page for the book</label>
+        <label class="check"><input type="checkbox" id="pg-reviewed"> I have checked this text</label>
       </div>
-      <div class="field">
-        <label for="pg-notebook">Notebook</label>
-        <input id="pg-notebook" type="text" list="notebook-list" placeholder="e.g. Blue journal">
-        <datalist id="notebook-list"></datalist>
-      </div>
-    </div>
-    <div class="field">
-      <label for="pg-tags">Tags <span class="muted">(separate with commas)</span></label>
-      <input id="pg-tags" type="text" placeholder="e.g. family, army, chapter 3" autocapitalize="none">
-    </div>
-    <div class="field">
-      <label for="pg-text">Whole page text</label>
-      <textarea id="pg-text" rows="12" placeholder="The words from this page appear here after reading. You can fix or type them."></textarea>
-      <p class="tip">Tips: tap the microphone on the keyboard to read the page aloud. On iPhone you can also tap the box, tap again and choose <b>Scan Text</b> to let the phone read the page with its camera. On Android, use the Google Lens button on the keyboard.</p>
-    </div>
-    <label class="check"><input type="checkbox" id="pg-reviewed"> I have checked this text</label>
-  </div>
 
-  <div class="page-actions">
-    <button class="btn primary big" id="pg-save">Save changes</button>
-    <button class="btn ghost big" id="pg-pdf">Save as PDF</button>
-    <button class="btn ghost" id="pg-reocr">Read this page again</button>
-    <button class="btn danger-ghost" id="pg-delete">Delete this page</button>
-  </div>
-  <div id="pg-confirm" class="confirm" hidden>
-    <p>Delete this page for good? This can't be undone.</p>
-    <div class="row-btns">
-      <button class="btn danger" id="pg-delete-yes">Yes, delete</button>
-      <button class="btn ghost" id="pg-delete-no">Keep it</button>
+      <div class="page-actions">
+        <button class="btn primary big" id="pg-save">Save changes</button>
+        <button class="btn ghost" id="pg-pdf">Save as PDF</button>
+        <button class="btn ghost" id="pg-reocr">Read this page again</button>
+        <button class="btn danger-ghost" id="pg-delete">Delete this page</button>
+      </div>
+      <div id="pg-confirm" class="confirm" hidden>
+        <p>Delete this page for good? This can't be undone.</p>
+        <div class="row-btns">
+          <button class="btn danger" id="pg-delete-yes">Yes, delete</button>
+          <button class="btn ghost" id="pg-delete-no">Keep it</button>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ============ MENU: backup & help ============ -->
-<section id="view-menu" class="view" hidden>
-  <header class="topbar">
-    <button class="icon-btn" id="menu-back" aria-label="Back to all pages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg></button>
-    <h1>Settings &amp; help</h1>
-    <span class="spacer"></span>
-  </header>
+<!-- ============ SETTINGS & HELP ============ -->
+<section id="view-settings" class="view" hidden>
+  <div class="section-head">
+    <h1 class="h-display">Settings &amp; help</h1>
+  </div>
 
   <div class="card" id="claude-card">
     <p class="kicker">reads the handwriting</p>
@@ -198,23 +307,24 @@
       <p id="claude-spent" class="muted"></p>
       <div class="note info" id="claude-note" hidden></div>
     </div>
-    <p class="muted small">The key stays on this phone. Pages go straight from this phone to Anthropic to be read, and nowhere else.</p>
+    <p class="muted small">The key stays on this device. Pages go straight from here to Anthropic to be read, and nowhere else.</p>
   </div>
 
   <div class="card">
-    <p class="kicker">your collection</p>
+    <p class="kicker">for the book</p>
     <h2>Your pages</h2>
     <p id="stats" class="muted"></p>
     <div class="stack">
-      <button class="btn primary" id="btn-pdf-all">Make one PDF of every page</button>
-      <button class="btn ghost" id="btn-text-all">Save all the text as one document</button>
+      <button class="btn primary" id="btn-pdf-all">One PDF of every page, in date order</button>
+      <button class="btn ghost" id="btn-text-all">All the typed text as one document, in date order</button>
+      <button class="btn ghost" id="btn-text-star">Only the pages saved for the book, as text</button>
     </div>
   </div>
 
   <div class="card">
     <p class="kicker">keep it safe</p>
     <h2>Backup</h2>
-    <p>Your pages are kept only on this phone. Save a backup now and then, and keep it somewhere safe such as iCloud Drive, Google Drive or email. You can also use a backup to move everything to a new phone.</p>
+    <p>Pages are kept only on this device. Save a backup now and then, and keep it somewhere safe such as iCloud Drive, Google Drive or email. A backup also moves everything to another device, for example from a phone to the Mac.</p>
     <div class="stack">
       <button class="btn primary" id="btn-backup">Save a backup file</button>
       <button class="btn ghost" id="btn-restore">Restore from a backup file</button>
@@ -226,21 +336,39 @@
     <p class="kicker">step by step</p>
     <h2>How to use it</h2>
     <ol>
-      <li><b>Scan.</b> Lay the page flat in good light. Tap <b>Scan a page</b> and take the photo. Or use <b>Choose photos</b> to pick several pages you already photographed.</li>
-      <li><b>Trim.</b> Drag the corners so only the page is left, then tap <b>Save page</b>.</li>
-      <li><b>Reading.</b> Claude reads each page and types it up, adding a title, the date and a few topics. It needs internet; without it, pages wait and are read as soon as the phone is back online.</li>
-      <li><b>Check.</b> Open a page to fix any words it got wrong, and add a title, date, notebook and tags. Tags like <i>family</i> or <i>chapter 3</i> make pages easy to find later.</li>
-      <li><b>Search.</b> Type words in the search box. Put words in quotes to find an exact phrase, like <i>"summer house"</i>. Use <b>Filters</b> to narrow by notebook, year or tag.</li>
-      <li><b>PDFs.</b> Open a page and tap <b>Save as PDF</b>, or search and tap <b>Make a PDF of these</b> to get all matching pages in one file.</li>
+      <li><b>Journals.</b> Make one journal for each notebook with <b>New journal</b>, and give each its own colour.</li>
+      <li><b>Scan.</b> In <b>Scan</b>, pick the journal, then take photos or choose them, from the first page to the last. Claude types each page up and finds its date.</li>
+      <li><b>Read.</b> Open a journal to turn through the pages side by side. Use the arrow keys, swipe, or drag the slider at the bottom to jump to a year.</li>
+      <li><b>Dates.</b> Pages without a date are shown as <i>between</i> the dated pages around them, so everything stays in order. Add or fix a date by opening the page with <b>Details</b>.</li>
+      <li><b>Arrange.</b> In a journal, <b>Arrange</b> lets you drag pages into the right order or move them to another journal.</li>
+      <li><b>Timeline.</b> Shows every journal together in date order. Tap the journal names at the top to show or hide them.</li>
+      <li><b>For the book.</b> Tap the star on any page to save it for the book. Search, PDFs and text exports can use just those pages.</li>
     </ol>
-    <p class="muted">Claude reads cursive very well, but it is still worth glancing over each page and fixing anything it got wrong. Search also finds words that are one letter off.</p>
+    <p class="muted">Keyboard on the Mac: ← and → turn pages, Home and End jump to the first and last page, T shows the typed text.</p>
   </div>
   <p class="muted center small" id="version"></p>
 </section>
+</main>
+
+<!-- Journal name / colour dialog -->
+<div id="jdlg" class="sheet" hidden>
+  <form class="sheet-box" id="jdlg-form">
+    <p id="jdlg-title">New journal</p>
+    <div class="field">
+      <label for="jdlg-name">Name</label>
+      <input id="jdlg-name" type="text" required placeholder="e.g. Red journal, 1978 to 1983">
+    </div>
+    <div class="label-sm">Colour</div>
+    <div class="swatches" id="jdlg-colors"></div>
+    <button class="btn primary big" type="submit" id="jdlg-ok">Save</button>
+    <button class="btn ghost" type="button" id="jdlg-cancel">Cancel</button>
+    <button class="btn danger-ghost" type="button" id="jdlg-delete" hidden>Delete this journal</button>
+  </form>
+</div>
 
 <!-- Full-size image viewer -->
 <div id="zoom" class="zoom" hidden>
-  <button class="icon-btn zoom-close" id="zoom-close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  <button class="icon-btn zoom-close" id="zoom-close" aria-label="Close"><svg><use href="#i-x"/></svg></button>
   <img id="zoom-img" alt="Scanned journal page, full size">
 </div>
 
@@ -248,7 +376,7 @@
 <div id="busy" class="busy" hidden><div class="busy-box"><div class="spinner"></div><p id="busy-text">Working…</p></div></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<!-- Share / download sheet (used when the phone can't open its share menu) -->
+<!-- Share / download sheet (used when the device can't open its share menu) -->
 <div id="sheet" class="sheet" hidden>
   <div class="sheet-box">
     <p id="sheet-text">Your file is ready.</p>
@@ -258,7 +386,11 @@
 </div>
 
 <script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/sortable.min.js"></script>
+<script src="chrono.js"></script>
 <script src="claude-reader.js"></script>
 <script src="app.js"></script>
+<script src="reader-view.js"></script>
+<script src="library.js"></script>
 </body>
 </html>

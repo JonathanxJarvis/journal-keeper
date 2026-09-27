@@ -1,9 +1,9 @@
 // Keeps Journal Keeper working without internet: every file the app needs is
 // stored on the phone. (Reading pages with Claude needs internet; pages wait until it is back.)
-const CACHE = 'journal-keeper-v8';
+const CACHE = 'journal-keeper-v9';
 const FILES = [
-  './', 'index.html', 'styles.css', 'claude-reader.js', 'app.js', 'manifest.webmanifest',
-  'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs',
+  './', 'index.html', 'styles.css', 'chrono.js', 'claude-reader.js', 'app.js', 'reader-view.js', 'library.js', 'manifest.webmanifest',
+  'vendor/jspdf.umd.min.js', 'vendor/anthropic-sdk.mjs', 'vendor/sortable.min.js',
   'fonts/fraunces.woff2', 'fonts/fraunces-italic.woff2', 'fonts/atkinson-400.woff2', 'fonts/atkinson-400-italic.woff2',
   'fonts/atkinson-700.woff2', 'fonts/caveat-600.woff2',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',

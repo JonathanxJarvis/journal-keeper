@@ -58,15 +58,18 @@ const ClaudeReader = (() => {
     additionalProperties: false,
   };
 
-  function prompt() {
-    const extra = hint() ? `\n\nNotes from the family about this writer and these journals:\n${hint()}` : '';
+  function prompt(ctx) {
+    let extra = hint() ? `\n\nNotes from the family about this writer and these journals:\n${hint()}` : '';
+    if (ctx && ctx.journal) extra += `\n\nThis page is from the journal "${ctx.journal}".`;
+    if (ctx && ctx.prevDate) extra += ` The last dated page before it in this journal is from ${ctx.prevDate}.`;
+    extra += '\n\nOnly give a date if one is written on this page. If a day and month are written without a year, take the year from the context above.';
     return 'This is a photo of one handwritten journal page. Transcribe it faithfully: keep the writer\'s own words, spelling and line breaks, ' +
       'and do not correct, summarise or add anything. Ignore ruled lines and writing that shows through from the other side of the paper. ' +
       'If a word cannot be read, write your best guess followed by [?]. Keep the original language.' + extra;
   }
 
   // Returns { text, title, date, tags, usd }. Throws an Error with a plain-language message and a .kind.
-  async function read(blob) {
+  async function read(blob, ctx) {
     if (!key()) throw Object.assign(new Error('Add your Claude API key in the menu first.'), { kind: 'key' });
     const [api, data] = await Promise.all([client(), pagePicture(blob)]);
     let res;
@@ -80,7 +83,7 @@ const ClaudeReader = (() => {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } },
-            { type: 'text', text: prompt() },
+            { type: 'text', text: prompt(ctx) },
           ],
         }],
       });

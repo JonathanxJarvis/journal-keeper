@@ -1,18 +1,23 @@
 # Journal Keeper
 
-A phone app for scanning handwritten journal pages, having Claude type them up,
-searching them, and saving them as PDFs. It is a web app that installs to the
-Home Screen. There is no server: pages are stored on the phone, and each photo
-is sent only to Claude (with your own API key) to be read.
+An app for turning a shelf of handwritten journals into one organized, searchable
+digital archive, ready for writing a book. It runs in a web browser on a Mac, PC,
+tablet or phone and installs like an app. There is no server: pages are stored on
+the device, and each photo is sent only to Claude (with your own API key) to be read.
 
-## What it does
-- **Scan**: take a photo or pick several from the photo library. Trim the edges, turn the page, and choose a "clean scan" look that removes shadows.
-- **Read handwriting**: Claude reads each page, cursive included, and returns the text plus a title, the date written and a few topics. The text can be corrected, typed, or dictated with the keyboard microphone.
-- **Organize**: title, date written, notebook and tags on each page, plus a "checked" mark.
-- **Search**: all words must match; "quoted phrases" match exactly; longer words also match when one letter is off, to forgive reading mistakes. Filter by notebook, year, tag, or pages still to check.
-- **PDF**: one page, the search results, or everything, as a single PDF (photo of the page followed by its typed text).
-- **Export text**: all text in one document, handy for writing the book.
-- **Backup / restore**: one file with every page, for safekeeping or moving to a new phone.
+## The four sections
+- **Journals**: one cover per journal (for example seven), each with its own colour, page count and the years it spans. Open one to read it like a book: two pages side by side, turned with the arrow keys, the mouse wheel, a swipe, or the slider marked with years. Press **T** to show the typed text beside each page. **Arrange** shows every page as a tile to drag into the right order, or tick pages and move them to another journal. Search here finds words across all journals.
+- **Timeline**: every page of every journal in date order in one viewer. Tap journal names to hide or show them.
+- **Scan**: pick which journal you are scanning, then take photos, pick several at once, or drag files in on a computer. New pages go to the end of that journal, in the order the photos were taken.
+- **Settings & help**: the Claude key, the PDF and text exports for the book, and backups.
+
+## Dates and pages without a date
+When Claude sees a date on a page it fills it in (a full date, a month or just a year). A page without a date is placed by the pages around it: "Between 3 March 1984 and 12 June 1984", "After …" or "Before …". Fix a date or the page order and every label updates. A date that is earlier than a date before it in the same journal is marked so it can be checked.
+
+Star a page (**Save for the book**) to collect it; the "For the book" shelf and the exports gather starred pages.
+
+## Using it on an older Mac
+Use a recent **Chrome** if Safari is older than version 14.1. Pages stay in that browser on that Mac; to move pages between devices use Settings → Save a backup file, then Restore on the other device.
 
 ## Setting up the Claude reader (paid per page)
 
@@ -52,6 +57,6 @@ The app itself works offline; reading new pages needs internet, and pages wait u
 
 ## Files
 
-`index.html`, `styles.css`, `app.js` (the app), `claude-reader.js` (sends a page to Claude and reads back the text), `sw.js` (offline support),
+`index.html`, `styles.css`, `app.js` (storage, scanning, search, exports), `library.js` (the screens), `reader-view.js` (the side-by-side page viewer), `chrono.js` (dates and in-between labels), `claude-reader.js` (sends a page to Claude and reads back the text), `sw.js` (offline support),
 `manifest.webmanifest` + `icons/` (Home Screen install), `fonts/` (Fraunces, Atkinson Hyperlegible, Caveat; SIL Open Font License),
-`vendor/` (jsPDF 2.5.2 under MIT, and the official Anthropic TypeScript SDK bundled for the browser, MIT).
+`vendor/` (jsPDF 2.5.2 under MIT, SortableJS 1.15.6 under MIT, and the official Anthropic TypeScript SDK bundled for the browser, MIT).
