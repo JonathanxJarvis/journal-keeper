@@ -4,7 +4,7 @@
    library.js draws the screens and reader-view.js the page-turning viewer. */
 'use strict';
 
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.2.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -182,7 +182,7 @@ async function deliverFile(blob, filename) {
 }
 
 /* =========================================================
-   Image handling: load, rotate, crop, "clean scan" look
+   Image handling: load, rotate, crop
    ========================================================= */
 async function loadImage(file) {
   // createImageBitmap applies the photo's EXIF rotation in current browsers.
@@ -224,44 +224,38 @@ function renderPage(src, turns, rect, maxSide) {
   return out;
 }
 
-/* "Clean scan": evens out shadows by dividing by a blurred copy of the
-   page (the paper), then darkens the ink, keeping the pen colour. Makes pages easier to read and helps
-   the handwriting reader. */
-function cleanScan(canvas) {
-  const w = canvas.width, h = canvas.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const bgW = Math.max(8, Math.round(w / 28)), bgH = Math.max(8, Math.round(h / 28));
-  const small = document.createElement('canvas');
-  small.width = bgW; small.height = bgH;
-  const sc = small.getContext('2d');
-  sc.imageSmoothingQuality = 'high';
-  sc.drawImage(canvas, 0, 0, bgW, bgH);
-  // Soften the small copy a second time so ink strokes don't show in it
-  const tiny = document.createElement('canvas');
-  tiny.width = Math.max(4, bgW >> 2); tiny.height = Math.max(4, bgH >> 2);
-  tiny.getContext('2d').drawImage(small, 0, 0, tiny.width, tiny.height);
-  sc.drawImage(tiny, 0, 0, bgW, bgH);
-  const big = document.createElement('canvas');
-  big.width = w; big.height = h;
-  const bc = big.getContext('2d');
-  bc.imageSmoothingQuality = 'high';
-  bc.drawImage(small, 0, 0, w, h);
-
-  const img = ctx.getImageData(0, 0, w, h);
-  const bg = bc.getImageData(0, 0, w, h).data;
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    // Each colour channel divided by the paper's own colour: paper turns white,
-    // shadows vanish, and blue or black ink keeps its colour.
-    for (let c = 0; c < 3; c++) {
-      let v = Math.min(1, d[i + c] / Math.max(bg[i + c] * 0.94, 1));
-      v = Math.pow(v, 1.8);
-      d[i + c] = v > 0.95 ? 255 : Math.round(v * 255);
+/* Which way do the lines of writing run? Journal pages have ruled lines and
+   rows of handwriting; when the lines run across the picture, the rows of the
+   picture alternate strongly between ink and paper, and the columns don't.
+   Returns 1 (turn a quarter clockwise) when the lines run up and down, else 0.
+   Upside-down pages are caught by Claude when it reads the page. */
+function lineTurns(src) {
+  const N = 256;
+  const s = N / Math.max(src.width, src.height);
+  const w = Math.max(8, Math.round(src.width * s)), h = Math.max(8, Math.round(src.height * s));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(src, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+  // Strength of up-down changes (made by lines across) against left-right changes (lines up and down),
+  // counted only in the middle of the picture to stay clear of table edges and the book's cover.
+  const x0 = Math.round(w * 0.15), x1 = Math.round(w * 0.85), y0 = Math.round(h * 0.15), y1 = Math.round(h * 0.85);
+  let across = 0, upDown = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = y * w + x;
+      // a thin dark line across the page is darker than the pixels two above and two below it
+      const v = Math.min(g[i - 2 * w], g[i + 2 * w]) - g[i];
+      const hz = Math.min(g[i - 2], g[i + 2]) - g[i];
+      if (v > 12 && v > hz * 1.5) across += v;
+      if (hz > 12 && hz > v * 1.5) upDown += hz;
     }
   }
-  ctx.putImageData(img, 0, 0);
-  big.width = big.height = 0;
-  return canvas;
+  c.width = c.height = 0;
+  return upDown > across * 1.3 ? 1 : 0;
 }
 
 function makeThumb(canvas) {
@@ -275,10 +269,10 @@ function makeThumb(canvas) {
 }
 
 /* =========================================================
-   Adjust screen (turn, crop, look) for newly scanned photos
+   Adjust screen (turn, crop) for newly scanned photos
    ========================================================= */
 const adjust = {
-  queue: [], src: null, turns: 0, rect: null, look: 'clean', dragging: null,
+  queue: [], src: null, turns: 0, rect: null, dragging: null,
 };
 
 async function startAdjust(files) {
@@ -299,7 +293,7 @@ async function nextInQueue() {
     return nextInQueue();
   }
   busy(false);
-  adjust.turns = 0;
+  adjust.turns = lineTurns(adjust.src);   // lines of writing across the page
   adjust.rect = { x0: 0, y0: 0, x1: 1, y1: 1 };   // whole photo, so no writing is cut off
   const left = adjust.queue.length;
   $('#adj-title').textContent = left ? `Adjust the page (${left} more after this)` : 'Adjust the page';
@@ -335,10 +329,6 @@ function drawAdjust() {
   ctx.rotate((adjust.turns * Math.PI) / 2);
   ctx.drawImage(src, -src.width / 2, -src.height / 2);
   ctx.restore();
-  if (adjust.look === 'clean') {
-    // cheap preview of the clean look on the small canvas
-    cleanScan(cv);
-  }
   placeCropRect();
 }
 
@@ -378,9 +368,8 @@ function setupCropHandles() {
   stage.addEventListener('pointercancel', end);
 }
 
-async function saveAdjusted(src, turns, rect, look) {
+async function saveAdjusted(src, turns, rect) {
   const canvas = renderPage(src, turns, rect, MAX_SIDE);
-  if (look === 'clean') cleanScan(canvas);
   const [image, thumb] = await Promise.all([canvasToBlob(canvas, 'image/jpeg', 0.85), makeThumb(canvas)]);
   const now = Date.now();
   const page = {

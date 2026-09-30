@@ -6,7 +6,7 @@ tablet or phone and installs like an app. There is no server: pages are stored o
 the device, and each photo is sent only to Claude (with your own API key) to be read.
 
 ## The four sections
-- **Journals**: one cover per journal (for example seven), each with its own colour, page count and the years it spans. Open one to read it like a book: two pages side by side, turned with the arrow keys, the mouse wheel, a swipe, or the slider marked with years. Press **T** to show the typed text beside each page. **Arrange** shows every page as a tile to drag into the right order, or tick pages and move them to another journal. Search here finds words across all journals.
+- **Journals**: one cover per journal (for example seven), each with its own colour, page count and the years it spans. Open one to read it like a book: two pages side by side, turned with the arrow keys, the mouse wheel, a swipe, or the slider marked with years. Press **T** to show the typed text beside each page. **Select & arrange** shows every page as a tile to drag into the right order; tick pages (or Tick all) to delete, turn or move them to another journal. Search here finds words across all journals.
 - **Timeline**: every page of every journal in date order in one viewer. Tap journal names to hide or show them.
 - **Scan**: pick which journal you are scanning, then take photos, pick several at once, or drag files in on a computer. New pages go to the end of that journal, in the order the photos were taken.
 - **Settings & help**: the Claude key, the PDF and text exports for the book, and backups.

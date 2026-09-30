@@ -132,7 +132,7 @@
     </div>
     <div class="seg" role="group" aria-label="How to show the pages">
       <button class="seg-btn on" data-mode="read"><svg><use href="#i-spread"/></svg>Read</button>
-      <button class="seg-btn" data-mode="arrange"><svg><use href="#i-grid"/></svg>Arrange</button>
+      <button class="seg-btn" data-mode="arrange"><svg><use href="#i-grid"/></svg>Select &amp; arrange</button>
     </div>
     <button class="icon-btn" id="jr-edit" aria-label="Rename or recolour this journal"><svg><use href="#i-edit"/></svg></button>
   </div>
@@ -140,9 +140,12 @@
   <div id="jr-reader" class="reader-host"></div>
 
   <div id="jr-arrange" hidden>
-    <p class="hint">Drag pages to put them in the right order. Tick pages to move them to another journal.</p>
+    <p class="hint">Drag pages to put them in the right order. Tick pages to delete them, turn them, or move them to another journal.</p>
     <div class="arrange-bar">
+      <button class="btn ghost small" id="ar-all">Tick all</button>
       <span id="ar-count" class="muted">None ticked</span>
+      <button class="btn danger-ghost small" id="ar-delete" disabled>Delete ticked</button>
+      <button class="btn ghost small" id="ar-turn" disabled>↻ Turn ticked</button>
       <select id="ar-target" aria-label="Move ticked pages to"></select>
       <button class="btn ghost small" id="ar-move" disabled>Move ticked pages</button>
       <button class="btn ghost small" id="jr-pdf">PDF of this journal</button>
@@ -200,7 +203,7 @@
     <h1 id="adj-title">Adjust the page</h1>
     <span class="spacer"></span>
   </header>
-  <p class="hint">The whole photo is kept, so no writing is cut off. Drag the corners only to trim the edges. Pages that are sideways or upside down are turned upright by Claude when it reads them.</p>
+  <p class="hint">The whole photo is kept in its original colours, so no writing is cut off. Sideways pages are turned so the lines run across, and Claude turns upside-down pages when it reads them. Use Turn if one still looks wrong.</p>
   <div class="crop-stage" id="crop-stage">
     <canvas id="adj-canvas"></canvas>
     <div class="crop-rect" id="crop-rect">
@@ -210,10 +213,6 @@
   </div>
   <div class="adj-tools">
     <button class="btn ghost" id="adj-rotate">↻ Turn</button>
-    <div class="seg" role="group" aria-label="Page look">
-      <button class="seg-btn on" data-look="clean">Clean scan</button>
-      <button class="seg-btn" data-look="color">Original color</button>
-    </div>
   </div>
   <div class="adj-actions">
     <button class="btn primary big" id="adj-save-rest" hidden>Save all as they are</button>

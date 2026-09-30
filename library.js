@@ -213,8 +213,59 @@ async function saveArrangeOrder() {
 
 function updateTicks() {
   const n = $$('#arrange input:checked').length;
+  const all = $$('#arrange input').length;
   $('#ar-count').textContent = n ? `${n} ticked` : 'None ticked';
   $('#ar-move').disabled = !n || !$('#ar-target').value;
+  $('#ar-delete').disabled = !n;
+  $('#ar-turn').disabled = !n;
+  $('#ar-all').textContent = all && n === all ? 'Untick all' : 'Tick all';
+  $('#ar-all').hidden = !all;
+}
+
+const tickedIds = () => $$('#arrange .tile').filter((li) => li.querySelector('input').checked).map((li) => li.dataset.id);
+
+function tickAll() {
+  const boxes = $$('#arrange input');
+  const on = boxes.some((b) => !b.checked);
+  for (const b of boxes) b.checked = on;
+  updateTicks();
+}
+
+async function deleteTicked() {
+  const ids = tickedIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} page${ids.length === 1 ? '' : 's'} from ${journalName(ui.journalId)}? This cannot be undone.`)) return;
+  busy('Deleting pages…');
+  try {
+    for (const id of ids) await DB.deletePage(id);
+    const gone = new Set(ids);
+    state.pages = state.pages.filter((x) => !gone.has(x.id));
+    const rest = pagesOf(ui.journalId);
+    rest.forEach((x, i) => { x.seq = i + 1; });
+    await DB.putPages(rest.map(stored));
+    recompute();
+    toast(`Deleted ${ids.length} page${ids.length === 1 ? '' : 's'}`);
+  } catch (e) {
+    console.error(e);
+    toast('Some pages could not be deleted.', 4000);
+  }
+  busy(false);
+  openJournal(ui.journalId);
+  hooks.pagesChanged();
+}
+
+async function turnTicked() {
+  const ids = tickedIds();
+  for (let i = 0; i < ids.length; i++) {
+    busy(`Turning pages… ${i + 1} of ${ids.length}`);
+    const p = state.pages.find((x) => x.id === ids[i]);
+    if (p) await turnStored(p, 1).catch((e) => console.error(e));
+  }
+  busy(false);
+  renderArrange(pagesOf(ui.journalId));
+  // keep the same pages ticked, so pressing again turns them further
+  for (const li of $$('#arrange .tile')) if (ids.includes(li.dataset.id)) li.querySelector('input').checked = true;
+  updateTicks();
 }
 
 async function moveTicked() {
@@ -541,6 +592,9 @@ function wire() {
   $('#arrange').addEventListener('change', updateTicks);
   $('#ar-target').onchange = updateTicks;
   $('#ar-move').onclick = moveTicked;
+  $('#ar-all').onclick = tickAll;
+  $('#ar-delete').onclick = deleteTicked;
+  $('#ar-turn').onclick = turnTicked;
   $('#arrange').addEventListener('dblclick', (e) => {
     const li = e.target.closest('.tile');
     if (li) openPage(li.dataset.id, journalPages(ui.journalId), 'journal');
@@ -613,17 +667,10 @@ function wire() {
     adjust.rect = { x0: 1 - r.y1, y0: r.x0, x1: 1 - r.y0, y1: r.x1 };
     drawAdjust();
   };
-  for (const b of $$('#view-adjust .seg-btn')) {
-    b.onclick = () => {
-      adjust.look = b.dataset.look;
-      for (const x of $$('#view-adjust .seg-btn')) x.classList.toggle('on', x === b);
-      drawAdjust();
-    };
-  }
   $('#adj-save').onclick = async () => {
     busy('Saving page…');
     try {
-      await saveAdjusted(adjust.src, adjust.turns, adjust.rect, adjust.look);
+      await saveAdjusted(adjust.src, adjust.turns, adjust.rect);
       busy(false);
       toast(adjust.queue.length ? 'Saved. Next photo…' : 'Saved. Claude is reading it now.');
       await nextInQueue();
@@ -635,12 +682,12 @@ function wire() {
   };
   $('#adj-save-rest').onclick = async () => {
     try {
-      await saveAdjusted(adjust.src, adjust.turns, adjust.rect, adjust.look);
+      await saveAdjusted(adjust.src, adjust.turns, adjust.rect);
       const rest = adjust.queue.splice(0);
       for (let i = 0; i < rest.length; i++) {
         busy(`Saving pages… ${i + 2} of ${rest.length + 1}`);
         const src = await loadImage(rest[i]);
-        await saveAdjusted(src, 0, { x0: 0, y0: 0, x1: 1, y1: 1 }, adjust.look);
+        await saveAdjusted(src, lineTurns(src), { x0: 0, y0: 0, x1: 1, y1: 1 });
       }
       busy(false);
       toast(`Saved ${rest.length + 1} pages. Claude is reading them now.`);
