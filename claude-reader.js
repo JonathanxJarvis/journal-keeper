@@ -67,7 +67,7 @@ const ClaudeReader = (() => {
     return 'This is a photo of one handwritten journal page. Transcribe it faithfully: keep the writer\'s own words, spelling and line breaks, ' +
       'and do not correct, summarise or add anything. Ignore ruled lines and writing that shows through from the other side of the paper. ' +
       'If a word cannot be read, write your best guess followed by [?]. Keep the original language. ' +
-      'The photo may be upside down: read it the right way up and say whether it was upside down.' + extra;
+      'The photo may be upside down: read it the right way up, and say whether the writing in the photo as given is upside down.' + extra;
   }
 
   // Returns { text, title, date, tags, usd }. Throws an Error with a plain-language message and a .kind.

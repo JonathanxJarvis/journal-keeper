@@ -4,7 +4,7 @@
    library.js draws the screens and reader-view.js the page-turning viewer. */
 'use strict';
 
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -258,6 +258,106 @@ function lineTurns(src) {
   return upDown > across * 1.3 ? 1 : 0;
 }
 
+/* Is the writing the right way up, or upside down? Two clues, both from the picture:
+   - on ruled paper the writing sits on top of each ruled line, not hanging under it;
+   - in each line of writing, more ink sticks up above the letters (capitals, l, t, h, d, b, k, f)
+     than hangs below them (g, y, p, j).
+   Takes a picture whose lines already run across. A positive score means right way up. */
+function uprightScore(src) {
+  const N = 800;
+  const s = N / Math.max(src.width, src.height);
+  const w = Math.round(src.width * s), h = Math.round(src.height * s);
+  const gray = (cv) => { const d = cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height).data; const g = new Float32Array(cv.width * cv.height); for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11; return g; };
+  const draw = (angle) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.translate(w / 2, h / 2); x.rotate(angle); x.drawImage(src, -w / 2, -h / 2, w, h); return c; };
+  const darkness = (c) => {
+    const g = gray(c);
+    const bw = Math.max(4, w >> 4), bh = Math.max(4, h >> 4);
+    const sc = document.createElement('canvas'); sc.width = bw; sc.height = bh; sc.getContext('2d').drawImage(c, 0, 0, bw, bh);
+    const big = document.createElement('canvas'); big.width = w; big.height = h; const bx = big.getContext('2d'); bx.imageSmoothingQuality = 'high'; bx.drawImage(sc, 0, 0, w, h);
+    const bg = gray(big);
+    const D = new Float32Array(w * h); for (let i = 0; i < D.length; i++) D[i] = Math.max(0, bg[i] - g[i]); return D;
+  };
+  const X0 = Math.round(w * 0.12), X1 = Math.round(w * 0.88), Y0 = Math.round(h * 0.05), Y1 = Math.round(h * 0.95);
+  // 1. skew from the sharpest row profile of dark pixels
+  let D = darkness(draw(0));
+  let best = 0, bestVar = -1;
+  for (let a = -6; a <= 6; a += 0.5) {
+    const t = Math.tan(a * Math.PI / 180), P = new Float32Array(h);
+    for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x += 2) if (D[y * w + x] > 20) { const yy = Math.round(y - (x - w / 2) * t); if (yy >= 0 && yy < h) P[yy]++; }
+    let m = 0, v = 0; for (let y = 0; y < h; y++) m += P[y]; m /= h; for (let y = 0; y < h; y++) v += (P[y] - m) ** 2;
+    if (v > bestVar) { bestVar = v; best = a; }
+  }
+  if (best) D = darkness(draw(-best * Math.PI / 180));
+  // 2. ruled lines: long thin horizontal runs of faint darkness
+  const width = X1 - X0, runMin = Math.round(width * 0.05);
+  const ruleCount = new Float32Array(h);
+  const isRule = new Uint8Array(w * h);
+  for (let y = 3; y < h - 3; y++) {
+    let run = 0, miss = 0, start = X0;
+    for (let x = X0; x <= X1; x++) {
+      const i = y * w + x;
+      const m = x < X1 ? Math.max(D[i], D[i - w] * 0.8, D[i + w] * 0.8) : 0;
+      const line = m > 8 && m > Math.max(D[i - 3 * w], D[i + 3 * w]) + 5;
+      if (line) { if (!run) start = x; run++; miss = 0; }
+      else if (run && miss < 3 && x < X1) { miss++; run++; }
+      else { if (run - miss >= runMin) { for (let k = start; k < x; k++) isRule[y * w + k] = 1; ruleCount[y] += run - miss; } run = 0; miss = 0; }
+    }
+  }
+  const rules = [];
+  for (let y = 1; y < h - 1; y++) if (ruleCount[y] > width * 0.2 && ruleCount[y] >= ruleCount[y - 1] && ruleCount[y] >= ruleCount[y + 1]) { if (rules.length && y - rules[rules.length - 1] < 5) continue; rules.push(y); }
+  // 3. writing: clearly dark, not part of a ruled line
+  const Q = new Float32Array(h);
+  let thr = 0; { const v = []; for (let y = Y0; y < Y1; y += 3) for (let x = X0; x < X1; x += 3) v.push(D[y * w + x]); v.sort((a, b) => a - b); thr = Math.max(30, v[Math.floor(v.length * 0.97)] * 0.6); }
+  for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) { const i = y * w + x; if (D[i] > thr && !isRule[i] && !isRule[i - w] && !isRule[i + w]) Q[y]++; }
+  // C: writing sits on top of the ruled line
+  let onTop = 0, under = 0, gaps = [];
+  for (let i = 0; i + 1 < rules.length; i++) gaps.push(rules[i + 1] - rules[i]);
+  gaps.sort((a, b) => a - b); let gap = gaps.length ? gaps[gaps.length >> 1] : 0;
+  if (rules.length < 4 || gap < 10 || gap > h / 8) gap = 0;
+  if (gap >= 10) for (const r of rules) {
+    const band = Math.round(gap * 0.3);
+    for (let y = r - band; y < r - 1; y++) if (y >= 0) onTop += Q[y];
+    for (let y = r + 2; y <= r + band; y++) if (y < h) under += Q[y];
+  }
+  // B: lines of writing; ink just above the body (ascenders, capitals) vs just below (descenders)
+  const S = new Float32Array(h); for (let y = 0; y < h; y++) { let t = 0; for (let k = -2; k <= 2; k++) t += Q[Math.min(h - 1, Math.max(0, y + k))]; S[y] = t / 5; }
+  let lag = gap;
+  if (!lag) {
+    const ac = []; for (let L = 0; L < h / 5; L++) { let t = 0; for (let y = 0; y + L < h; y++) t += S[y] * S[y + L]; ac.push(t / (h - L)); }
+    let first = 0; for (let L = 8; L < ac.length - 1; L++) if (ac[L] > ac[L - 1] && ac[L] >= ac[L + 1]) { first = first || L; if (ac[L] > ac[first] * 1.15) first = L; break; }
+    lag = first || 30;
+  }
+  const peaks = []; const maxS = Math.max(...S);
+  for (let y = 1; y < h - 1; y++) {
+    if (S[y] < maxS * 0.25 || S[y] < S[y - 1] || S[y] < S[y + 1]) continue;
+    if (peaks.length && y - peaks[peaks.length - 1] < lag * 0.6) { if (S[y] > S[peaks[peaks.length - 1]]) peaks[peaks.length - 1] = y; continue; }
+    peaks.push(y);
+  }
+  let above = 0, below = 0;
+  for (const pk of peaks) {
+    const half = S[pk] * 0.5; let top = pk, bot = pk;
+    while (top > 0 && S[top - 1] > half) top--; while (bot < h - 1 && S[bot + 1] > half) bot++;
+    const reach = Math.round(lag * 0.4);
+    for (let y = Math.max(0, top - reach); y < top; y++) above += Q[y];
+    for (let y = bot + 1; y <= Math.min(h - 1, bot + reach); y++) below += Q[y];
+  }
+    const lr = (a, b) => Math.log((a + 20) / (b + 20));
+  const ruleClue = gap ? lr(onTop, under) : 0;
+  const lineClue = lr(above, below) * Math.min(1, peaks.length / 6);
+  return 1.5 * ruleClue + lineClue;
+}
+
+/* Quarter-turns (clockwise) that stand a photo upright: lines across, top at the top.
+   Claude double-checks for upside-down pages when it reads them. */
+function pageTurns(src) {
+  const t = lineTurns(src);
+  const img = t ? renderPage(src, t, { x0: 0, y0: 0, x1: 1, y1: 1 }, 1000) : src;
+  let score = 0;
+  try { score = uprightScore(img); } catch (e) { console.error(e); }
+  if (img !== src) img.width = img.height = 0;
+  return score < 0 ? t + 2 : t;
+}
+
 function makeThumb(canvas) {
   const s = Math.min(1, THUMB_SIDE / Math.max(canvas.width, canvas.height));
   const t = document.createElement('canvas');
@@ -293,7 +393,7 @@ async function nextInQueue() {
     return nextInQueue();
   }
   busy(false);
-  adjust.turns = lineTurns(adjust.src);   // lines of writing across the page
+  adjust.turns = pageTurns(adjust.src);   // lines across, top at the top
   adjust.rect = { x0: 0, y0: 0, x1: 1, y1: 1 };   // whole photo, so no writing is cut off
   const left = adjust.queue.length;
   $('#adj-title').textContent = left ? `Adjust the page (${left} more after this)` : 'Adjust the page';

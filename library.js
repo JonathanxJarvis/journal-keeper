@@ -218,6 +218,7 @@ function updateTicks() {
   $('#ar-move').disabled = !n || !$('#ar-target').value;
   $('#ar-delete').disabled = !n;
   $('#ar-turn').disabled = !n;
+  $('#ar-straighten').disabled = !n;
   $('#ar-all').textContent = all && n === all ? 'Untick all' : 'Tick all';
   $('#ar-all').hidden = !all;
 }
@@ -254,13 +255,25 @@ async function deleteTicked() {
   hooks.pagesChanged();
 }
 
-async function turnTicked() {
+// by = quarter-turns, or 'auto' to let the app work out which way is up
+async function turnTicked(by) {
   const ids = tickedIds();
+  let turned = 0;
   for (let i = 0; i < ids.length; i++) {
-    busy(`Turning pages… ${i + 1} of ${ids.length}`);
+    busy(`${by === 'auto' ? 'Straightening' : 'Turning'} pages… ${i + 1} of ${ids.length}`);
     const p = state.pages.find((x) => x.id === ids[i]);
-    if (p) await turnStored(p, 1).catch((e) => console.error(e));
+    if (!p) continue;
+    try {
+      let t = by;
+      if (by === 'auto') {
+        const src = await loadImage(await DB.getImage(p.id));
+        t = pageTurns(src);
+        src.close && src.close();
+      }
+      if (t) { await turnStored(p, t); turned++; }
+    } catch (e) { console.error(e); }
   }
+  if (by === 'auto') toast(turned ? `Turned ${turned} of ${ids.length} pages` : 'These pages were already the right way up');
   busy(false);
   renderArrange(pagesOf(ui.journalId));
   // keep the same pages ticked, so pressing again turns them further
@@ -594,7 +607,8 @@ function wire() {
   $('#ar-move').onclick = moveTicked;
   $('#ar-all').onclick = tickAll;
   $('#ar-delete').onclick = deleteTicked;
-  $('#ar-turn').onclick = turnTicked;
+  $('#ar-turn').onclick = () => turnTicked(1);
+  $('#ar-straighten').onclick = () => turnTicked('auto');
   $('#arrange').addEventListener('dblclick', (e) => {
     const li = e.target.closest('.tile');
     if (li) openPage(li.dataset.id, journalPages(ui.journalId), 'journal');
@@ -687,7 +701,7 @@ function wire() {
       for (let i = 0; i < rest.length; i++) {
         busy(`Saving pages… ${i + 2} of ${rest.length + 1}`);
         const src = await loadImage(rest[i]);
-        await saveAdjusted(src, lineTurns(src), { x0: 0, y0: 0, x1: 1, y1: 1 });
+        await saveAdjusted(src, pageTurns(src), { x0: 0, y0: 0, x1: 1, y1: 1 });
       }
       busy(false);
       toast(`Saved ${rest.length + 1} pages. Claude is reading them now.`);
