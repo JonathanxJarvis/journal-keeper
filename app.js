@@ -4,7 +4,7 @@
    library.js draws the screens and reader-view.js the page-turning viewer. */
 'use strict';
 
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 const MAX_SIDE = 2200;      // longest edge of a stored page image, in pixels
 const THUMB_SIDE = 360;
 
@@ -300,10 +300,13 @@ async function nextInQueue() {
   }
   busy(false);
   adjust.turns = 0;
-  adjust.rect = { x0: 0.03, y0: 0.03, x1: 0.97, y1: 0.97 };
+  adjust.rect = { x0: 0, y0: 0, x1: 1, y1: 1 };   // whole photo, so no writing is cut off
   const left = adjust.queue.length;
   $('#adj-title').textContent = left ? `Adjust the page (${left} more after this)` : 'Adjust the page';
-  $('#adj-save').textContent = left ? 'Save and go to next' : 'Save page';
+  $('#adj-save').textContent = left ? 'Save this one, adjust the next' : 'Save page';
+  $('#adj-save').className = left ? 'btn ghost' : 'btn primary big';
+  $('#adj-save-rest').textContent = `Save all ${left + 1} as they are`;
+  $('#adj-save-rest').className = 'btn primary big';
   $('#adj-save-rest').hidden = !left;
   showView('adjust');
   drawAdjust();
@@ -407,6 +410,20 @@ async function saveAdjusted(src, turns, rect, look) {
   return page;
 }
 
+// Stand a saved page upright (Claude noticed it was sideways or upside down)
+async function turnStored(page, turns) {
+  const blob = await DB.getImage(page.id);
+  if (!blob) return;
+  const src = await loadImage(blob);
+  const canvas = renderPage(src, turns, { x0: 0, y0: 0, x1: 1, y1: 1 }, MAX_SIDE);
+  const [image, thumb] = await Promise.all([canvasToBlob(canvas, 'image/jpeg', 0.9), makeThumb(canvas)]);
+  const fresh = (await DB.getPage(page.id)) || stored(page);
+  Object.assign(fresh, { thumb, w: canvas.width, h: canvas.height, imgAt: Date.now() });
+  canvas.width = canvas.height = 0;
+  await DB.putPageWithImage(fresh, image);
+  Object.assign(page, fresh);
+}
+
 let persistAsked = false;
 async function requestPersistentStorage() {
   if (persistAsked || !navigator.storage || !navigator.storage.persist) return;
@@ -466,6 +483,7 @@ const OCR = (() => {
           throw e;
         }
         readProgress.delete(id);
+        if (meta.turns) await turnStored(page, meta.turns);
         // If this page is open, keep what has been typed so far
         if (state.currentId === id) await savePage({ quiet: true });
         const fresh = (await DB.getPage(id)) || page;

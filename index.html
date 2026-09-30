@@ -200,7 +200,7 @@
     <h1 id="adj-title">Adjust the page</h1>
     <span class="spacer"></span>
   </header>
-  <p class="hint">Drag the corners to trim off the table or background.</p>
+  <p class="hint">The whole photo is kept, so no writing is cut off. Drag the corners only to trim the edges. Pages that are sideways or upside down are turned upright by Claude when it reads them.</p>
   <div class="crop-stage" id="crop-stage">
     <canvas id="adj-canvas"></canvas>
     <div class="crop-rect" id="crop-rect">
@@ -216,8 +216,8 @@
     </div>
   </div>
   <div class="adj-actions">
+    <button class="btn primary big" id="adj-save-rest" hidden>Save all as they are</button>
     <button class="btn primary big" id="adj-save">Save page</button>
-    <button class="btn ghost" id="adj-save-rest" hidden>Save all the rest as they are</button>
   </div>
 </section>
 

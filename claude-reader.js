@@ -52,9 +52,10 @@ const ClaudeReader = (() => {
       text: { type: 'string', description: 'Everything written on the page, line by line, exactly as written.' },
       title: { type: 'string', description: 'A short title of at most 8 words for the page, taken from its content.' },
       date: { type: 'string', description: 'The date written on the page as YYYY-MM-DD, or YYYY-MM or YYYY if only partly given. Empty if there is no date.' },
+      top: { type: 'string', enum: ['up', 'right', 'down', 'left'], description: 'Which edge of the photo the top of the writing points to: "up" if the page is upright, "right" if the page lies turned so its lines run from top to bottom, "down" if it is upside down, "left" if its lines run from bottom to top.' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Up to 5 short lowercase topics (people, places, themes).' },
     },
-    required: ['text', 'title', 'date', 'tags'],
+    required: ['text', 'title', 'date', 'top', 'tags'],
     additionalProperties: false,
   };
 
@@ -65,7 +66,8 @@ const ClaudeReader = (() => {
     extra += '\n\nOnly give a date if one is written on this page. If a day and month are written without a year, take the year from the context above.';
     return 'This is a photo of one handwritten journal page. Transcribe it faithfully: keep the writer\'s own words, spelling and line breaks, ' +
       'and do not correct, summarise or add anything. Ignore ruled lines and writing that shows through from the other side of the paper. ' +
-      'If a word cannot be read, write your best guess followed by [?]. Keep the original language.' + extra;
+      'If a word cannot be read, write your best guess followed by [?]. Keep the original language. ' +
+      'The photo may be sideways or upside down: read it the right way up and report which way the top of the writing points.' + extra;
   }
 
   // Returns { text, title, date, tags, usd }. Throws an Error with a plain-language message and a .kind.
@@ -110,6 +112,8 @@ const ClaudeReader = (() => {
       title: String(parsed.title || '').trim(),
       date: /^\d{4}(-\d{2}){0,2}$/.test(parsed.date || '') ? parsed.date : '',
       tags: Array.isArray(parsed.tags) ? parsed.tags.map((t) => String(t).trim().toLowerCase()).filter(Boolean).slice(0, 5) : [],
+      // quarter-turns clockwise needed to stand the page upright
+      turns: { right: 3, down: 2, left: 1 }[parsed.top] || 0,
       usd,
     };
   }

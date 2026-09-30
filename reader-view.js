@@ -25,7 +25,8 @@ function createReader(host, opts) {
   const years = root.querySelector('.rd-years');
   let pages = [];
   let index = 0;
-  const full = new Map();          // page id -> object URL of the full image (a few dozen kept)
+  const full = new Map();          // page id + picture version -> object URL of the full image (a few dozen kept)
+  const fkey = (p) => p.id + ':' + (p.imgAt || 0);
 
   const perView = () => (track.clientWidth >= 820 ? 2 : 1);
   const leafW = () => track.clientWidth / perView();
@@ -61,20 +62,23 @@ function createReader(host, opts) {
   }, { root: track, rootMargin: '0px 150% 0px 150%' }) : null;
 
   async function loadFull(leaf) {
-    const id = leaf.dataset.id;
+    const p = pages.find((x) => x.id === leaf.dataset.id);
+    if (!p) return;
+    const k = fkey(p);
     const img = leaf.querySelector('.leaf-img');
-    if (full.has(id)) { img.src = full.get(id); return; }
-    const blob = await DB.getImage(id).catch(() => null);
+    if (full.has(k)) { img.src = full.get(k); return; }
+    const blob = await DB.getImage(p.id).catch(() => null);
     if (!blob || !leaf.isConnected) return;
     const url = URL.createObjectURL(blob);
-    full.set(id, url);
+    full.set(k, url);
     img.src = url;
     if (full.size > 40) {
-      const [oldId, oldUrl] = full.entries().next().value;
-      full.delete(oldId);
+      const [oldKey, oldUrl] = full.entries().next().value;
+      full.delete(oldKey);
+      const oldId = oldKey.slice(0, oldKey.lastIndexOf(':'));
       const old = track.querySelector(`.leaf[data-id="${CSS.escape(oldId)}"] .leaf-img`);
-      const p = pages.find((x) => x.id === oldId);
-      if (old && p) old.src = thumbURL(p);
+      const op = pages.find((x) => x.id === oldId);
+      if (old && op && fkey(op) === oldKey) old.src = thumbURL(op);
       URL.revokeObjectURL(oldUrl);
     }
   }
@@ -227,7 +231,7 @@ function createReader(host, opts) {
     const tmp = document.createElement('div');
     tmp.innerHTML = leafHTML(pages[i], i);
     const leaf = tmp.firstElementChild;
-    if (full.has(id)) leaf.querySelector('.leaf-img').src = full.get(id);
+    if (full.has(fkey(pages[i]))) leaf.querySelector('.leaf-img').src = full.get(fkey(pages[i]));
     old.replaceWith(leaf);
     if (io) io.observe(leaf);
     if (i === index) status();
